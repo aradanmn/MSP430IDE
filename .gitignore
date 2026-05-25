@@ -1,0 +1,8 @@
+.build/
+.swiftpm/
+Package.resolved
+MSP430IDE.app/
+*.xcodeproj/xcuserdata/
+xcuserdata/
+.DS_Store
+*.dSYM/
