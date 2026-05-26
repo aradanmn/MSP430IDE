@@ -4,20 +4,24 @@ struct MainView: View {
     @EnvironmentObject var appState: AppState
 
     var body: some View {
-        NavigationSplitView {
-            FileTreeView()
-                .navigationSplitViewColumnWidth(min: 180, ideal: 220, max: 360)
-        } detail: {
-            VSplitView {
-                EditorPane()
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                ConsoleView()
-                    .frame(minHeight: 100, idealHeight: 180)
+        VStack(spacing: 0) {
+            NavigationSplitView {
+                FileTreeView()
+                    .navigationSplitViewColumnWidth(min: 180, ideal: 220, max: 360)
+            } detail: {
+                VSplitView {
+                    EditorPane()
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    ConsoleView()
+                        .frame(minHeight: 100, idealHeight: 180)
+                }
+                .frame(minWidth: 400)
             }
-            .frame(minWidth: 400)
+            .navigationTitle(appState.project?.rootURL.lastPathComponent ?? "MSP430 IDE")
+            .toolbar { AppToolbar() }
+
+            StatusBar()
         }
-        .navigationTitle(appState.project?.rootURL.lastPathComponent ?? "MSP430 IDE")
-        .toolbar { AppToolbar() }
     }
 }
 
@@ -50,10 +54,18 @@ struct FileHeader: View {
                 Text("•").foregroundStyle(.orange).bold()
             }
             Spacer()
+            Text("\(buffer.text.count) chars")
+                .font(.caption)
+                .foregroundStyle(.tertiary)
+                .monospacedDigit()
         }
         .padding(.horizontal, 10)
-        .padding(.vertical, 4)
+        .padding(.vertical, 6)
+        .frame(minHeight: 28)
         .background(.bar)
+        .overlay(alignment: .bottom) {
+            Divider()
+        }
     }
 }
 

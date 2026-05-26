@@ -31,15 +31,16 @@ enum CHighlighter {
     static func highlight(storage: NSTextStorage) {
         let string = storage.string
         let length = (string as NSString).length
+        guard length > 0 else { return }
         let full = NSRange(location: 0, length: length)
 
         storage.beginEditing()
         defer { storage.endEditing() }
 
-        storage.setAttributes([
-            .font: baseFont,
-            .foregroundColor: NSColor.textColor
-        ], range: full)
+        // Replace ONLY the foreground color and font, preserving paragraph style
+        // and other attributes that NSTextView relies on for rendering.
+        storage.addAttribute(.foregroundColor, value: NSColor.textColor, range: full)
+        storage.addAttribute(.font, value: baseFont, range: full)
 
         let kwColor = NSColor.systemPink
         let strColor = NSColor.systemRed
@@ -57,21 +58,17 @@ enum CHighlighter {
         apply(preprocessorRegex, in: string, range: full, storage: storage, color: prepColor, bold: true)
         apply(stringRegex, in: string, range: full, storage: storage, color: strColor)
         apply(charRegex, in: string, range: full, storage: storage, color: strColor)
-        apply(blockCommentRegex, in: string, range: full, storage: storage, color: commentColor, italic: true)
-        apply(lineCommentRegex, in: string, range: full, storage: storage, color: commentColor, italic: true)
+        apply(blockCommentRegex, in: string, range: full, storage: storage, color: commentColor)
+        apply(lineCommentRegex, in: string, range: full, storage: storage, color: commentColor)
     }
 
-    private static func apply(_ regex: NSRegularExpression?, in text: String, range: NSRange, storage: NSTextStorage, color: NSColor, bold: Bool = false, italic: Bool = false) {
-        guard let regex = regex else { return }
+    private static func apply(_ regex: NSRegularExpression?, in text: String, range: NSRange, storage: NSTextStorage, color: NSColor, bold: Bool = false) {
+        guard let regex else { return }
         regex.enumerateMatches(in: text, options: [], range: range) { match, _, _ in
             guard let r = match?.range else { return }
             storage.addAttribute(.foregroundColor, value: color, range: r)
             if bold {
                 storage.addAttribute(.font, value: boldFont, range: r)
-            }
-            if italic {
-                let italicFont = NSFontManager.shared.convert(baseFont, toHaveTrait: .italicFontMask)
-                storage.addAttribute(.font, value: italicFont, range: r)
             }
         }
     }

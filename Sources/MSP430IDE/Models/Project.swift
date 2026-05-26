@@ -60,6 +60,51 @@ struct ProjectModel: Equatable {
     var sourceFiles: [URL] = []
     var headerFiles: [URL] = []
     var assemblyFiles: [URL] = []
+    /// Parent-path suffix shown next to each URL's basename for disambiguation.
+    /// Empty string (or missing key) means no suffix is needed — basename is unique.
+    var disambiguators: [URL: String] = [:]
+
+    /// For each URL whose basename collides with another in `urls`, returns the shortest
+    /// parent-dir path (relative to `root`) that uniquely identifies it. Prefixed with
+    /// "…/" if it's a strict suffix of the full relative path. URLs with unique basenames
+    /// are not included.
+    static func computeDisambiguators(for urls: [URL], relativeTo root: URL) -> [URL: String] {
+        var result: [URL: String] = [:]
+        let rootPrefix = root.path + "/"
+        let groups = Dictionary(grouping: urls, by: { $0.lastPathComponent })
+
+        for (_, group) in groups where group.count > 1 {
+            let parts: [(URL, [String])] = group.map { url in
+                let path = url.path
+                let rel: String
+                if path.hasPrefix(rootPrefix) {
+                    rel = String(path.dropFirst(rootPrefix.count))
+                } else {
+                    rel = path.hasPrefix("/") ? String(path.dropFirst()) : path
+                }
+                let comps = rel.split(separator: "/").map(String.init)
+                return (url, Array(comps.dropLast()))
+            }
+
+            for (url, dirs) in parts {
+                guard !dirs.isEmpty else { continue }
+                var n = 1
+                while n <= dirs.count {
+                    let suffix = dirs.suffix(n)
+                    let unique = !parts.contains { other in
+                        other.0 != url && other.1.suffix(n).elementsEqual(suffix)
+                    }
+                    if unique { break }
+                    n += 1
+                }
+                let chosen = dirs.suffix(min(n, dirs.count))
+                let suffixPath = chosen.joined(separator: "/")
+                let needsEllipsis = chosen.count < dirs.count
+                result[url] = needsEllipsis ? "…/\(suffixPath)" : suffixPath
+            }
+        }
+        return result
+    }
 
     var configNames: [String] {
         configs.keys.sorted { lhs, rhs in

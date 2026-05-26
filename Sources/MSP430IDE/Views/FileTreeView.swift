@@ -55,10 +55,19 @@ struct FileRow: View {
 
     var body: some View {
         let isDirty = appState.buffers[url]?.isDirty ?? false
-        HStack {
+        let suffix = appState.project?.disambiguators[url] ?? ""
+        HStack(spacing: 6) {
             Image(systemName: iconName)
                 .foregroundStyle(iconColor)
             Text(url.lastPathComponent)
+            if !suffix.isEmpty {
+                Text(suffix)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .help(url.path)
+            }
             if isDirty {
                 Spacer()
                 Circle().fill(Color.orange).frame(width: 6, height: 6)

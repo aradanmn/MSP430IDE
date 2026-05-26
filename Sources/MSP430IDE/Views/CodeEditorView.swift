@@ -9,61 +9,66 @@ struct CodeEditorView: NSViewRepresentable {
     }
 
     func makeNSView(context: Context) -> NSScrollView {
-        let scroll = NSTextView.scrollableTextView()
-        scroll.hasVerticalScroller = true
-        scroll.borderType = .noBorder
-        scroll.autohidesScrollers = false
+        let scrollView = NSTextView.scrollableTextView()
+        scrollView.hasVerticalScroller = true
+        scrollView.hasHorizontalScroller = false
+        scrollView.autohidesScrollers = true
+        scrollView.borderType = .noBorder
+        scrollView.drawsBackground = true
+        scrollView.backgroundColor = NSColor.textBackgroundColor
 
-        let tv = scroll.documentView as! NSTextView
-        tv.font = NSFont.monospacedSystemFont(ofSize: 13, weight: .regular)
-        tv.isAutomaticQuoteSubstitutionEnabled = false
-        tv.isAutomaticDashSubstitutionEnabled = false
-        tv.isAutomaticTextReplacementEnabled = false
-        tv.isAutomaticSpellingCorrectionEnabled = false
-        tv.isContinuousSpellCheckingEnabled = false
-        tv.isAutomaticLinkDetectionEnabled = false
-        tv.isAutomaticDataDetectionEnabled = false
-        tv.isRichText = false
-        tv.allowsUndo = true
-        tv.usesFindPanel = true
-        tv.textColor = NSColor.textColor
-        tv.insertionPointColor = NSColor.textColor
-        tv.backgroundColor = NSColor.textBackgroundColor
-        tv.drawsBackground = true
-        tv.delegate = context.coordinator
-        tv.isHorizontallyResizable = false
-        tv.textContainerInset = NSSize(width: 6, height: 8)
-        tv.textContainer?.widthTracksTextView = true
+        guard let textView = scrollView.documentView as? NSTextView else {
+            return scrollView
+        }
 
-        let ruler = LineNumberRuler(textView: tv)
-        scroll.verticalRulerView = ruler
-        scroll.hasVerticalRuler = true
-        scroll.rulersVisible = true
+        textView.isEditable = true
+        textView.isSelectable = true
+        textView.isRichText = false
+        textView.allowsUndo = true
+        textView.usesFindPanel = true
+        textView.isAutomaticQuoteSubstitutionEnabled = false
+        textView.isAutomaticDashSubstitutionEnabled = false
+        textView.isAutomaticTextReplacementEnabled = false
+        textView.isAutomaticSpellingCorrectionEnabled = false
+        textView.isAutomaticLinkDetectionEnabled = false
+        textView.isAutomaticDataDetectionEnabled = false
+        textView.isContinuousSpellCheckingEnabled = false
 
-        context.coordinator.textView = tv
-        context.coordinator.ruler = ruler
+        let font = NSFont.monospacedSystemFont(ofSize: 13, weight: .regular)
+        textView.font = font
+        textView.textColor = NSColor.labelColor
+        textView.insertionPointColor = NSColor.labelColor
+        textView.backgroundColor = NSColor.textBackgroundColor
+        textView.drawsBackground = true
+        textView.textContainerInset = NSSize(width: 4, height: 8)
+        textView.delegate = context.coordinator
 
-        tv.string = buffer.text
-        context.coordinator.applyHighlighting()
-        return scroll
+        textView.string = buffer.text
+        if let storage = textView.textStorage {
+            CHighlighter.highlight(storage: storage)
+        }
+
+        context.coordinator.textView = textView
+        return scrollView
     }
 
-    func updateNSView(_ scroll: NSScrollView, context: Context) {
+    func updateNSView(_ scrollView: NSScrollView, context: Context) {
         context.coordinator.buffer = buffer
-        guard let tv = scroll.documentView as? NSTextView else { return }
+        guard let tv = scrollView.documentView as? NSTextView else { return }
         if tv.string != buffer.text {
-            let selected = tv.selectedRange()
+            let prev = tv.selectedRange()
             tv.string = buffer.text
-            context.coordinator.applyHighlighting()
+            if let storage = tv.textStorage {
+                CHighlighter.highlight(storage: storage)
+            }
             let len = (tv.string as NSString).length
-            tv.setSelectedRange(NSRange(location: min(selected.location, len), length: 0))
+            tv.setSelectedRange(NSRange(location: min(prev.location, len), length: 0))
         }
     }
 
     final class Coordinator: NSObject, NSTextViewDelegate {
         var buffer: TextBuffer
         weak var textView: NSTextView?
-        weak var ruler: LineNumberRuler?
 
         init(buffer: TextBuffer) {
             self.buffer = buffer
@@ -73,13 +78,9 @@ struct CodeEditorView: NSViewRepresentable {
             guard let tv = notification.object as? NSTextView else { return }
             buffer.text = tv.string
             buffer.markDirty()
-            applyHighlighting()
-            ruler?.needsDisplay = true
-        }
-
-        func applyHighlighting() {
-            guard let tv = textView, let storage = tv.textStorage else { return }
-            CHighlighter.highlight(storage: storage)
+            if let storage = tv.textStorage {
+                CHighlighter.highlight(storage: storage)
+            }
         }
     }
 }

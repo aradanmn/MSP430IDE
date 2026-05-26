@@ -166,6 +166,10 @@ enum ProjectLoader {
         model.sourceFiles = c.sorted { $0.path < $1.path }
         model.assemblyFiles = s.sorted { $0.path < $1.path }
         model.headerFiles = h.sorted { $0.path < $1.path }
+        model.disambiguators = ProjectModel.computeDisambiguators(
+            for: model.sourceFiles + model.assemblyFiles + model.headerFiles,
+            relativeTo: model.rootURL
+        )
     }
 
     private static func tryReadLegacyJSON(at url: URL) -> [String: TOMLValue]? {

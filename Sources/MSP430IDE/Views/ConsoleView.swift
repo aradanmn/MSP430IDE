@@ -11,17 +11,7 @@ struct ConsoleView: View {
                 Text("Console")
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(.secondary)
-                    .layoutPriority(1)
-                if appState.isBuilding || appState.isFlashing {
-                    ProgressView().controlSize(.small)
-                }
                 Spacer(minLength: 8)
-                Text(appState.statusMessage)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-                    .layoutPriority(-1)
                 Button {
                     appState.clearConsole()
                 } label: {
@@ -29,7 +19,6 @@ struct ConsoleView: View {
                 }
                 .buttonStyle(.borderless)
                 .help("Clear console")
-                .layoutPriority(1)
             }
             .padding(.horizontal, 10)
             .padding(.vertical, 6)
