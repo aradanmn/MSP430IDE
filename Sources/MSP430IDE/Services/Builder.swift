@@ -56,6 +56,23 @@ struct Builder {
 
         var linkArgs = [mcuFlag]
         linkArgs += effective.ldflags
+
+        // Bare-metal MSP430: assembly-only projects (no .c with main) use a
+        // user-defined `_start` and don't want gcc's default libcrt — which
+        // emits a call to `main` that won't resolve. Auto-add the same flags
+        // that the user's own Makefiles use in that case.
+        let hasC = !project.sourceFiles.isEmpty
+        let hasAsm = !project.assemblyFiles.isEmpty
+        let bareMetal = hasAsm && !hasC
+        if bareMetal {
+            if !linkArgs.contains("-nostdlib") {
+                linkArgs.append("-nostdlib")
+            }
+            if !linkArgs.contains(where: { $0.contains("section-start=.vectors") }) {
+                linkArgs.append("-Wl,--section-start=.vectors=0xFFE0")
+            }
+        }
+
         if let lp = resolveLinkerScript(effective: effective, supportPath: supportPath) {
             linkArgs.append("-T")
             linkArgs.append(lp)

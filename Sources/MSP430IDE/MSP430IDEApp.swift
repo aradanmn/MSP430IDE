@@ -42,12 +42,12 @@ struct MSP430IDEApp: App {
                 Button("Close Project") {
                     appState.closeProject()
                 }
-                .disabled(appState.project == nil)
+                .disabled(appState.workspaceRoot == nil)
 
                 Button("Create Project Config Here…") {
                     appState.createProjectConfigHere()
                 }
-                .disabled(appState.project == nil || appState.project?.isImplicit != true)
+                .disabled(appState.workspaceRoot == nil)
             }
 
             CommandGroup(replacing: .saveItem) {

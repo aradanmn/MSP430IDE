@@ -191,20 +191,23 @@ final class AppState: ObservableObject {
         }
     }
 
-    /// Scaffolds an msp430.toml in the given folder (defaults to the
-    /// workspace root if folderURL is nil) and re-discovers sub-projects.
+    /// Scaffolds an msp430.toml in the given folder and re-discovers
+    /// sub-projects. Shows an alert if the folder already has one, since
+    /// this is always invoked from a direct user action.
     @discardableResult
-    func createProjectConfig(at folderURL: URL? = nil) -> Bool {
-        let target = folderURL ?? workspaceRoot
-        guard let target else { return false }
-        let configURL = target.appendingPathComponent(ProjectLoader.configFileName)
-        guard !FileManager.default.fileExists(atPath: configURL.path) else {
-            appendConsole("msp430.toml already exists at \(configURL.path)\n")
+    func createProjectConfig(at folderURL: URL) -> Bool {
+        let configURL = folderURL.appendingPathComponent(ProjectLoader.configFileName)
+        if FileManager.default.fileExists(atPath: configURL.path) {
+            let alert = NSAlert()
+            alert.messageText = "msp430.toml already exists in \(folderURL.lastPathComponent)/"
+            alert.informativeText = "\(configURL.path)\n\nEdit it directly or delete it first if you want to regenerate."
+            alert.addButton(withTitle: "OK")
+            alert.runModal()
             return false
         }
         let toml = """
         [project]
-        name = "\(target.lastPathComponent)"
+        name = "\(folderURL.lastPathComponent)"
         mcu  = "msp430g2553"
         mode = "native"
 
@@ -225,25 +228,44 @@ final class AppState: ObservableObject {
             try toml.write(to: configURL, atomically: true, encoding: .utf8)
             appendConsole("✓ Created \(configURL.path)\n")
             // Re-discover sub-projects without re-opening (preserve tabs etc.)
-            if let model = try? ProjectLoader.load(from: target) {
-                subprojects[target] = model
+            if let model = try? ProjectLoader.load(from: folderURL) {
+                subprojects[folderURL] = model
                 if let sel = selectedFile {
                     project = enclosingProject(for: sel) ?? project
                 } else {
                     project = model
                 }
             }
+            // Re-scan to pick up the new toml in display files (no-op for content,
+            // but refreshes sub-project recognition in the tree).
+            if let root = workspaceRoot {
+                displayFiles = ProjectLoader.scanForDisplay(at: root)
+            }
             return true
         } catch {
-            appendConsole("Failed to write msp430.toml: \(error.localizedDescription)\n")
+            let alert = NSAlert()
+            alert.messageText = "Couldn't create msp430.toml"
+            alert.informativeText = error.localizedDescription
+            alert.addButton(withTitle: "OK")
+            alert.runModal()
             return false
         }
     }
 
-    /// Backward-compat alias for the older menu item that scaffolds at
-    /// the workspace root.
+    /// File → Create Project Config Here…
+    ///
+    /// "Here" = the folder of the currently active file. Falls back to
+    /// the workspace root if no file is selected. This matches the user
+    /// model that "here" means the thing in focus, not the entire tree.
     func createProjectConfigHere() {
-        createProjectConfig(at: workspaceRoot)
+        let target: URL?
+        if let selected = selectedFile {
+            target = selected.deletingLastPathComponent()
+        } else {
+            target = workspaceRoot
+        }
+        guard let target else { return }
+        createProjectConfig(at: target)
     }
 
     @discardableResult
