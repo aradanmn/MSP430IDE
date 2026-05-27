@@ -55,7 +55,7 @@ struct CodeEditorView: NSViewRepresentable {
 
         textView.string = buffer.text
         if let storage = textView.textStorage {
-            CHighlighter.highlight(storage: storage)
+            HighlighterRegistry.highlighter(for: buffer.url).highlight(storage: storage)
         }
 
         context.coordinator.attach(textView: textView, scrollView: scrollView)
@@ -70,7 +70,7 @@ struct CodeEditorView: NSViewRepresentable {
             let prev = tv.selectedRange()
             tv.string = buffer.text
             if let storage = tv.textStorage {
-                CHighlighter.highlight(storage: storage)
+                HighlighterRegistry.highlighter(for: buffer.url).highlight(storage: storage)
             }
             let len = (tv.string as NSString).length
             tv.setSelectedRange(NSRange(location: min(prev.location, len), length: 0))
@@ -128,7 +128,7 @@ struct CodeEditorView: NSViewRepresentable {
             buffer.text = tv.string
             buffer.markDirty()
             if let storage = tv.textStorage {
-                CHighlighter.highlight(storage: storage)
+                HighlighterRegistry.highlighter(for: buffer.url).highlight(storage: storage)
             }
             scheduleRecompute()
         }

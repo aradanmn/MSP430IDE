@@ -1,15 +1,8 @@
 import AppKit
 
-/// A pluggable syntax highlighter. Implementations apply colors and font
-/// attributes to an NSTextStorage in-place.
+/// A syntax highlighter applies colors/font traits to an NSTextStorage in-place.
+/// Implementations: `GrammarBasedHighlighter` (TextMate grammars),
+/// `PlainTextHighlighter` (fallback).
 protocol Highlighter {
     func highlight(storage: NSTextStorage)
-}
-
-/// Adapter so the existing static CHighlighter conforms to the protocol
-/// without disturbing its current call sites.
-struct CRegexHighlighter: Highlighter {
-    func highlight(storage: NSTextStorage) {
-        CHighlighter.highlight(storage: storage)
-    }
 }

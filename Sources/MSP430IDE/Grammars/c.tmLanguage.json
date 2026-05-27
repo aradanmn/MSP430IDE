@@ -1,0 +1,144 @@
+{
+  "name": "C",
+  "scopeName": "source.c",
+  "fileTypes": ["c", "h"],
+  "patterns": [
+    { "include": "#comments" },
+    { "include": "#preprocessor" },
+    { "include": "#strings" },
+    { "include": "#numbers" },
+    { "include": "#keywords" },
+    { "include": "#types" },
+    { "include": "#constants" },
+    { "include": "#function-call" },
+    { "include": "#registers" }
+  ],
+  "repository": {
+    "comments": {
+      "patterns": [
+        {
+          "name": "comment.line.double-slash.c",
+          "match": "//[^\\n]*"
+        },
+        {
+          "name": "comment.block.c",
+          "begin": "/\\*",
+          "end": "\\*/"
+        }
+      ]
+    },
+    "preprocessor": {
+      "patterns": [
+        {
+          "name": "meta.preprocessor.include.c",
+          "match": "^\\s*#\\s*include\\b\\s*[<\"][^>\"\\n]*[>\"]"
+        },
+        {
+          "name": "meta.preprocessor.c",
+          "match": "^\\s*#\\s*(define|undef|if|ifdef|ifndef|else|elif|endif|pragma|error|warning|line)\\b"
+        }
+      ]
+    },
+    "strings": {
+      "patterns": [
+        {
+          "name": "string.quoted.double.c",
+          "begin": "\"",
+          "end": "\"",
+          "patterns": [
+            {
+              "name": "constant.character.escape.c",
+              "match": "\\\\."
+            }
+          ]
+        },
+        {
+          "name": "string.quoted.single.c",
+          "begin": "'",
+          "end": "'",
+          "patterns": [
+            {
+              "name": "constant.character.escape.c",
+              "match": "\\\\."
+            }
+          ]
+        }
+      ]
+    },
+    "numbers": {
+      "patterns": [
+        {
+          "name": "constant.numeric.hex.c",
+          "match": "\\b0[xX][0-9A-Fa-f]+[uUlL]*\\b"
+        },
+        {
+          "name": "constant.numeric.binary.c",
+          "match": "\\b0[bB][01]+[uUlL]*\\b"
+        },
+        {
+          "name": "constant.numeric.c",
+          "match": "\\b\\d+(\\.\\d+)?([eE][+-]?\\d+)?[uUlLfF]*\\b"
+        }
+      ]
+    },
+    "keywords": {
+      "patterns": [
+        {
+          "name": "keyword.control.c",
+          "match": "\\b(if|else|switch|case|default|for|while|do|break|continue|return|goto)\\b"
+        },
+        {
+          "name": "storage.type.c",
+          "match": "\\b(char|short|int|long|float|double|void|signed|unsigned|_Bool|_Complex|_Imaginary|struct|union|enum|typedef|register)\\b"
+        },
+        {
+          "name": "storage.modifier.c",
+          "match": "\\b(const|static|extern|volatile|inline|restrict|auto|__attribute__|__interrupt|interrupt|__asm__|asm)\\b"
+        },
+        {
+          "name": "keyword.operator.sizeof.c",
+          "match": "\\bsizeof\\b"
+        }
+      ]
+    },
+    "types": {
+      "patterns": [
+        {
+          "name": "support.type.stdint.c",
+          "match": "\\b(int8_t|int16_t|int32_t|int64_t|uint8_t|uint16_t|uint32_t|uint64_t|size_t|ssize_t|ptrdiff_t|intptr_t|uintptr_t|bool|FILE|NULL)\\b"
+        }
+      ]
+    },
+    "constants": {
+      "patterns": [
+        {
+          "name": "constant.language.c",
+          "match": "\\b(true|false|NULL)\\b"
+        }
+      ]
+    },
+    "function-call": {
+      "patterns": [
+        {
+          "name": "meta.function-call.c",
+          "match": "\\b([A-Za-z_][A-Za-z0-9_]*)\\s*(?=\\()",
+          "captures": {
+            "1": { "name": "entity.name.function.c" }
+          }
+        }
+      ]
+    },
+    "registers": {
+      "patterns": [
+        {
+          "name": "variable.other.register.msp430",
+          "match": "\\bP[1-9](DIR|OUT|IN|REN|IE|IFG|SEL2?)\\b"
+        },
+        {
+          "name": "constant.other.register.msp430",
+          "match": "\\b(WDTCTL|WDTPW|WDTHOLD|TACTL|TACCR0|TACCR1|TACCTL0|TACCTL1|TAR|CCR0|CCR1|CCIE|CCIFG|TASSEL_\\d|MC_\\d|ID_\\d|BIT[0-7])\\b"
+        }
+      ]
+    }
+  }
+}

@@ -1,0 +1,143 @@
+{
+  "name": "MSP430 Assembly",
+  "scopeName": "source.asm.msp430",
+  "fileTypes": ["s", "asm"],
+  "patterns": [
+    { "include": "#comments" },
+    { "include": "#preprocessor" },
+    { "include": "#labels" },
+    { "include": "#directives" },
+    { "include": "#strings" },
+    { "include": "#immediates" },
+    { "include": "#addresses" },
+    { "include": "#numbers" },
+    { "include": "#mnemonics" },
+    { "include": "#registers" },
+    { "include": "#peripherals" }
+  ],
+  "repository": {
+    "comments": {
+      "patterns": [
+        {
+          "name": "comment.line.semicolon.asm",
+          "match": ";[^\\n]*"
+        }
+      ]
+    },
+    "preprocessor": {
+      "patterns": [
+        {
+          "name": "meta.preprocessor.include.asm",
+          "match": "^\\s*#\\s*include\\b\\s*[<\"][^>\"\\n]*[>\"]"
+        },
+        {
+          "name": "meta.preprocessor.asm",
+          "match": "^\\s*#\\s*(define|undef|if|ifdef|ifndef|else|elif|endif|pragma|error|warning|line)\\b"
+        }
+      ]
+    },
+    "labels": {
+      "patterns": [
+        {
+          "name": "entity.name.label.asm",
+          "match": "^\\s*([A-Za-z_\\.][A-Za-z0-9_\\.]*)\\s*:"
+        }
+      ]
+    },
+    "directives": {
+      "patterns": [
+        {
+          "name": "keyword.directive.asm",
+          "match": "(?<=^|\\s)\\.[A-Za-z_][A-Za-z0-9_]*\\b"
+        }
+      ]
+    },
+    "strings": {
+      "patterns": [
+        {
+          "name": "string.quoted.double.asm",
+          "begin": "\"",
+          "end": "\"",
+          "patterns": [
+            {
+              "name": "constant.character.escape.asm",
+              "match": "\\\\."
+            }
+          ]
+        }
+      ]
+    },
+    "immediates": {
+      "patterns": [
+        {
+          "name": "constant.numeric.immediate.asm",
+          "match": "#-?(0[xX][0-9A-Fa-f]+|0[bB][01]+|\\d+)\\b"
+        },
+        {
+          "name": "constant.other.immediate.asm",
+          "match": "#\\(?[A-Za-z_][A-Za-z0-9_]*(\\s*[|&^+\\-*/]\\s*[A-Za-z0-9_]+)*\\)?"
+        }
+      ]
+    },
+    "addresses": {
+      "patterns": [
+        {
+          "name": "variable.other.address.asm",
+          "match": "&[A-Za-z_][A-Za-z0-9_]*"
+        }
+      ]
+    },
+    "numbers": {
+      "patterns": [
+        {
+          "name": "constant.numeric.hex.asm",
+          "match": "\\b0[xX][0-9A-Fa-f]+\\b"
+        },
+        {
+          "name": "constant.numeric.binary.asm",
+          "match": "\\b0[bB][01]+\\b"
+        },
+        {
+          "name": "constant.numeric.asm",
+          "match": "\\b\\d+\\b"
+        }
+      ]
+    },
+    "mnemonics": {
+      "patterns": [
+        {
+          "name": "keyword.mnemonic.double.asm",
+          "match": "(?i)(?<=^|\\s)(mov|add|addc|sub|subc|cmp|dadd|bit|bic|bis|xor|and)(\\.[bw])?\\b"
+        },
+        {
+          "name": "keyword.mnemonic.single.asm",
+          "match": "(?i)(?<=^|\\s)(rrc|swpb|rra|sxt|push|call|reti)(\\.[bw])?\\b"
+        },
+        {
+          "name": "keyword.mnemonic.jump.asm",
+          "match": "(?i)(?<=^|\\s)(jne|jnz|jeq|jz|jnc|jlo|jc|jhs|jn|jge|jl|jmp)\\b"
+        },
+        {
+          "name": "keyword.mnemonic.emulated.asm",
+          "match": "(?i)(?<=^|\\s)(nop|ret|clr|clrc|clrn|clrz|dec|decd|inc|incd|inv|pop|rla|rlc|sbc|setc|setn|setz|tst|br|adc|dadc|eint|dint)(\\.[bw])?\\b"
+        }
+      ]
+    },
+    "registers": {
+      "patterns": [
+        {
+          "name": "variable.language.register.asm",
+          "match": "(?i)\\b(r1[0-5]|r[0-9]|pc|sp|sr|cg1|cg2|cg)\\b"
+        }
+      ]
+    },
+    "peripherals": {
+      "patterns": [
+        {
+          "name": "constant.other.register.msp430",
+          "match": "\\b(WDTCTL|WDTPW|WDTHOLD|TACTL|TACCR0|TACCR1|TACCTL0|TACCTL1|TAR|CCR0|CCR1|CCIE|CCIFG|TASSEL_\\d|MC_\\d|ID_\\d|BIT[0-7]|GIE|CPUOFF|OSCOFF|SCG[01]|DCOCTL|BCSCTL[123]|CALBC1_1MHZ|CALDCO_1MHZ|UCA0CTL[01]|UCA0BR[01]|UCA0MCTL|UCA0STAT|UCA0RXBUF|UCA0TXBUF|UCB0CTL[01]|UCB0BR[01]|UCB0STAT|UCB0RXBUF|UCB0TXBUF|UCSWRST|UCSSEL_\\d|ADC10CTL[01]|ADC10MEM|INCH_\\d+|ADC10SSEL_\\d|CONSEQ_\\d|SREF_\\d|ADC10SHT_\\d|REFON|ADC10ON|ENC|ADC10SC|ADC10BUSY|P[1-9](DIR|OUT|IN|REN|IE|IFG|SEL2?))\\b"
+        }
+      ]
+    }
+  }
+}

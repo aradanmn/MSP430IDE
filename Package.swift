@@ -8,6 +8,9 @@ let package = Package(
         .executableTarget(
             name: "MSP430IDE",
             path: "Sources/MSP430IDE",
+            resources: [
+                .copy("Grammars")
+            ],
             swiftSettings: [
                 .unsafeFlags(["-parse-as-library"])
             ]
