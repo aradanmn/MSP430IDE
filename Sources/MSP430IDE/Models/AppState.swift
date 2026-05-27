@@ -4,7 +4,25 @@ import Combine
 
 @MainActor
 final class AppState: ObservableObject {
+    /// Active project for build/flash. In workspace mode this is the
+    /// sub-project enclosing the selected file; in single-project mode
+    /// it's just the root project. Nil if no sub-project encloses the
+    /// active file.
     @Published var project: ProjectModel?
+
+    /// The folder the user opened. May be a single-project root or a
+    /// workspace containing many sub-projects.
+    @Published var workspaceRoot: URL?
+
+    /// Sub-project root URLs → loaded ProjectModel. Includes the
+    /// workspaceRoot itself if it has its own msp430.toml.
+    @Published var subprojects: [URL: ProjectModel] = [:]
+
+    /// Every source/header file under workspaceRoot. Drives the file tree.
+    /// Independent of which sub-project is active; doesn't get filtered
+    /// by per-project sources.exclude.
+    @Published var displayFiles: [URL] = []
+
     @Published var workspace: WorkspaceState = WorkspaceState()
     @Published var activeConfig: String = "Debug"
     @Published var selectedFile: URL?
@@ -20,8 +38,6 @@ final class AppState: ObservableObject {
 
     init() {
         self.toolchain = Toolchain.detect()
-        // Forward editor changes through AppState so SwiftUI views observing
-        // AppState re-render when tabs change.
         editorSubscription = editor.objectWillChange.sink { [weak self] _ in
             Task { @MainActor [weak self] in
                 self?.objectWillChange.send()
@@ -36,8 +52,8 @@ final class AppState: ObservableObject {
         panel.canChooseDirectories = true
         panel.canChooseFiles = false
         panel.allowsMultipleSelection = false
-        panel.prompt = "Open Project"
-        panel.message = "Choose an MSP430 project folder"
+        panel.prompt = "Open"
+        panel.message = "Choose an MSP430 project folder, or a parent folder containing several"
         if panel.runModal() == .OK, let url = panel.url {
             openProject(at: url)
         }
@@ -60,56 +76,135 @@ final class AppState: ObservableObject {
     }
 
     func openProject(at url: URL) {
-        do {
-            let proj = try ProjectLoader.load(from: url)
-            self.project = proj
-            let ws = WorkspaceState.load(for: proj)
-            self.workspace = ws
-            self.activeConfig = proj.configs[ws.activeConfig] != nil ? ws.activeConfig : (proj.configNames.first ?? "Debug")
-            self.buffers = [:]
-            self.selectedFile = nil
+        let canonical = URL(fileURLWithPath: (url.path as NSString).resolvingSymlinksInPath)
+        let fm = FileManager.default
 
-            editor.restore(workspace: ws, project: proj)
-            for url in editor.openTabs where buffers[url] == nil {
-                buffers[url] = TextBuffer.load(from: url)
-            }
-            if let active = editor.activeTab {
-                selectedFile = active
-            }
+        // Reset state
+        self.workspaceRoot = canonical
+        self.subprojects = [:]
+        self.project = nil
+        self.buffers = [:]
+        self.selectedFile = nil
+        self.consoleOutput = ""
+        editor.closeAll()
 
-            if selectedFile == nil {
-                let preferred = proj.sourceFiles.first(where: { $0.lastPathComponent == "main.c" })
-                    ?? proj.assemblyFiles.first(where: { $0.lastPathComponent == "main.s" })
-                    ?? proj.sourceFiles.first
-                    ?? proj.assemblyFiles.first
-                if let p = preferred { selectFile(p) }
+        // Load root as a sub-project if it has its own config
+        let rootHasConfig = fm.fileExists(atPath: canonical.appendingPathComponent(ProjectLoader.configFileName).path)
+        if rootHasConfig {
+            if let rootModel = try? ProjectLoader.load(from: canonical) {
+                subprojects[canonical] = rootModel
             }
-            statusMessage = "Opened \(proj.name)"
-        } catch {
-            appendConsole("Failed to open project: \(error.localizedDescription)\n")
-            statusMessage = "Open failed"
         }
+
+        // Walk for nested sub-projects under the root
+        for subRoot in ProjectLoader.discoverSubprojects(at: canonical) where subRoot != canonical {
+            if let model = try? ProjectLoader.load(from: subRoot) {
+                subprojects[subRoot] = model
+            }
+        }
+
+        // Scan all displayable files for the tree
+        displayFiles = ProjectLoader.scanForDisplay(at: canonical)
+
+        // Workspace state lives at the workspace root, not per sub-project
+        let wsState = loadWorkspaceState(at: canonical)
+        self.workspace = wsState
+        self.activeConfig = wsState.activeConfig.isEmpty ? "Debug" : wsState.activeConfig
+
+        // Restore tab buffers + active tab
+        let restoredTabs: [URL] = wsState.openTabs.compactMap { rel in
+            let u = canonical.appendingPathComponent(rel)
+            return fm.fileExists(atPath: u.path) ? u : nil
+        }
+        for u in restoredTabs {
+            editor.open(u)
+            if buffers[u] == nil { buffers[u] = TextBuffer.load(from: u) }
+        }
+        if let activeRel = wsState.activeTab {
+            let u = canonical.appendingPathComponent(activeRel)
+            if fm.fileExists(atPath: u.path) {
+                selectFile(u)
+            }
+        }
+
+        // Initial active project pick
+        if selectedFile == nil {
+            if let rootProj = subprojects[canonical] {
+                // Single-project mode — pick its preferred main file
+                let preferred = rootProj.sourceFiles.first(where: { $0.lastPathComponent == "main.c" })
+                    ?? rootProj.assemblyFiles.first(where: { $0.lastPathComponent == "main.s" })
+                    ?? rootProj.sourceFiles.first
+                    ?? rootProj.assemblyFiles.first
+                if let p = preferred {
+                    selectFile(p)
+                } else {
+                    self.project = rootProj
+                }
+            }
+            // In workspace-with-only-nested-subprojects mode, do nothing
+            // until the user clicks a file.
+        }
+
+        statusMessage = describeOpened(canonical)
+    }
+
+    private func describeOpened(_ root: URL) -> String {
+        let name = root.lastPathComponent
+        if subprojects.count == 0 {
+            return "Opened \(name) (browse only — no msp430.toml)"
+        } else if subprojects.count == 1, subprojects.keys.first == root {
+            return "Opened \(name)"
+        } else {
+            return "Opened \(name) — \(subprojects.count) sub-projects"
+        }
+    }
+
+    /// Returns the sub-project whose root is the closest ancestor of
+    /// `fileURL`. Used to auto-switch the build context when the user
+    /// selects a file in workspace mode.
+    func enclosingProject(for fileURL: URL) -> ProjectModel? {
+        let canonicalFile = URL(fileURLWithPath: (fileURL.path as NSString).resolvingSymlinksInPath).path
+        var best: (URL, Int)?
+        for subRoot in subprojects.keys {
+            let prefix = subRoot.path + "/"
+            if canonicalFile == subRoot.path || canonicalFile.hasPrefix(prefix) {
+                let depth = subRoot.path.count
+                if best == nil || depth > best!.1 {
+                    best = (subRoot, depth)
+                }
+            }
+        }
+        return best.flatMap { subprojects[$0.0] }
     }
 
     func refreshSources() {
-        guard var proj = project else { return }
-        ProjectLoader.scanSources(into: &proj)
-        self.project = proj
+        guard let root = workspaceRoot else { return }
+        displayFiles = ProjectLoader.scanForDisplay(at: root)
+        // Reload each subproject's source list
+        for (k, _) in subprojects {
+            if let updated = try? ProjectLoader.load(from: k) {
+                subprojects[k] = updated
+            }
+        }
+        if let active = selectedFile {
+            project = enclosingProject(for: active) ?? project
+        }
     }
 
-    /// Scaffolds an msp430.toml in the current project's root folder and
-    /// reloads. Useful when the user opens a plain folder and wants to
-    /// turn it into a buildable project. Will not overwrite an existing
-    /// msp430.toml.
-    func createProjectConfigHere() {
-        guard let proj = project else { return }
-        let configURL = proj.rootURL.appendingPathComponent(ProjectLoader.configFileName)
+    /// Scaffolds an msp430.toml in the given folder (defaults to the
+    /// workspace root if folderURL is nil) and re-discovers sub-projects.
+    @discardableResult
+    func createProjectConfig(at folderURL: URL? = nil) -> Bool {
+        let target = folderURL ?? workspaceRoot
+        guard let target else { return false }
+        let configURL = target.appendingPathComponent(ProjectLoader.configFileName)
         guard !FileManager.default.fileExists(atPath: configURL.path) else {
             appendConsole("msp430.toml already exists at \(configURL.path)\n")
-            return
+            return false
         }
         let toml = """
         [project]
+        name = "\(target.lastPathComponent)"
         mcu  = "msp430g2553"
         mode = "native"
 
@@ -129,17 +224,31 @@ final class AppState: ObservableObject {
         do {
             try toml.write(to: configURL, atomically: true, encoding: .utf8)
             appendConsole("✓ Created \(configURL.path)\n")
-            openProject(at: proj.rootURL)
+            // Re-discover sub-projects without re-opening (preserve tabs etc.)
+            if let model = try? ProjectLoader.load(from: target) {
+                subprojects[target] = model
+                if let sel = selectedFile {
+                    project = enclosingProject(for: sel) ?? project
+                } else {
+                    project = model
+                }
+            }
+            return true
         } catch {
             appendConsole("Failed to write msp430.toml: \(error.localizedDescription)\n")
+            return false
         }
     }
 
-    /// Closes the current project. Prompts once if any buffer is dirty.
-    /// Returns true if the project was closed; false if the user cancelled.
+    /// Backward-compat alias for the older menu item that scaffolds at
+    /// the workspace root.
+    func createProjectConfigHere() {
+        createProjectConfig(at: workspaceRoot)
+    }
+
     @discardableResult
     func closeProject() -> Bool {
-        guard project != nil else { return true }
+        guard workspaceRoot != nil else { return true }
 
         let dirtyBuffers = buffers.values.filter { $0.isDirty }
         if !dirtyBuffers.isEmpty {
@@ -171,20 +280,15 @@ final class AppState: ObservableObject {
             }
         }
 
-        if let proj = project {
-            let snap = editor.snapshot(for: proj)
-            workspace.activeConfig = activeConfig
-            workspace.openTabs = snap.openTabs
-            workspace.activeTab = snap.activeTab
-            workspace.selectedFile = snap.activeTab
-            workspace.openFiles = snap.openTabs
-            workspace.save(for: proj)
-        }
+        persistWorkspaceState()
 
         editor.closeAll()
         buffers = [:]
         selectedFile = nil
         project = nil
+        workspaceRoot = nil
+        subprojects = [:]
+        displayFiles = []
         workspace = WorkspaceState()
         activeConfig = "Debug"
         consoleOutput = ""
@@ -200,7 +304,18 @@ final class AppState: ObservableObject {
         if buffers[url] == nil {
             buffers[url] = TextBuffer.load(from: url)
         }
-        persistWorkspace()
+        // Auto-switch active project to the sub-project enclosing this file.
+        if let proj = enclosingProject(for: url) {
+            project = proj
+            if let resolvedConfig = workspace.activeConfig.isEmpty ? proj.configNames.first : workspace.activeConfig {
+                if proj.configs[resolvedConfig] != nil {
+                    activeConfig = resolvedConfig
+                } else {
+                    activeConfig = proj.configNames.first ?? "Debug"
+                }
+            }
+        }
+        persistWorkspaceState()
     }
 
     func closeTab(_ url: URL) {
@@ -225,7 +340,10 @@ final class AppState: ObservableObject {
         editor.close(url)
         buffers.removeValue(forKey: url)
         selectedFile = editor.activeTab
-        persistWorkspace()
+        if let active = selectedFile {
+            project = enclosingProject(for: active) ?? project
+        }
+        persistWorkspaceState()
     }
 
     func closeAllTabs() {
@@ -238,25 +356,34 @@ final class AppState: ObservableObject {
         editor.closeAll()
         buffers = [:]
         selectedFile = nil
-        persistWorkspace()
+        persistWorkspaceState()
     }
 
     func nextTab() {
         editor.nextTab()
         selectedFile = editor.activeTab
-        persistWorkspace()
+        if let active = selectedFile {
+            project = enclosingProject(for: active) ?? project
+        }
+        persistWorkspaceState()
     }
 
     func prevTab() {
         editor.prevTab()
         selectedFile = editor.activeTab
-        persistWorkspace()
+        if let active = selectedFile {
+            project = enclosingProject(for: active) ?? project
+        }
+        persistWorkspaceState()
     }
 
     func selectTabAt(_ index: Int) {
         editor.selectIndex(index)
         selectedFile = editor.activeTab
-        persistWorkspace()
+        if let active = selectedFile {
+            project = enclosingProject(for: active) ?? project
+        }
+        persistWorkspaceState()
     }
 
     func reopenLastClosed() {
@@ -265,7 +392,8 @@ final class AppState: ObservableObject {
             buffers[url] = TextBuffer.load(from: url)
         }
         selectedFile = url
-        persistWorkspace()
+        project = enclosingProject(for: url) ?? project
+        persistWorkspaceState()
     }
 
     func saveCurrent() {
@@ -295,19 +423,55 @@ final class AppState: ObservableObject {
     func setActiveConfig(_ name: String) {
         guard project?.configs[name] != nil else { return }
         activeConfig = name
-        persistWorkspace()
+        persistWorkspaceState()
         statusMessage = "Active config: \(name)"
     }
 
-    private func persistWorkspace() {
-        guard let proj = project else { return }
-        let snap = editor.snapshot(for: proj)
+    // MARK: - Workspace state persistence
+
+    private func workspaceStateURL(for root: URL) -> URL {
+        root.appendingPathComponent(".msp430ide/workspace.json")
+    }
+
+    private func loadWorkspaceState(at root: URL) -> WorkspaceState {
+        let url = workspaceStateURL(for: root)
+        guard let data = try? Data(contentsOf: url),
+              var state = try? JSONDecoder().decode(WorkspaceState.self, from: data) else {
+            return WorkspaceState()
+        }
+        if state.openTabs.isEmpty, !state.openFiles.isEmpty {
+            state.openTabs = state.openFiles
+        }
+        if state.activeTab == nil, let legacy = state.selectedFile {
+            state.activeTab = legacy
+        }
+        return state
+    }
+
+    private func persistWorkspaceState() {
+        guard let root = workspaceRoot else { return }
+        let snap = snapshotForWorkspace(root: root)
         workspace.activeConfig = activeConfig
         workspace.openTabs = snap.openTabs
         workspace.activeTab = snap.activeTab
-        workspace.selectedFile = snap.activeTab  // legacy mirror
-        workspace.openFiles = snap.openTabs       // legacy mirror
-        workspace.save(for: proj)
+        workspace.selectedFile = snap.activeTab
+        workspace.openFiles = snap.openTabs
+
+        let url = workspaceStateURL(for: root)
+        try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        if let data = try? encoder.encode(workspace) {
+            try? data.write(to: url)
+        }
+    }
+
+    private func snapshotForWorkspace(root: URL) -> (openTabs: [String], activeTab: String?) {
+        let prefix = root.path + "/"
+        let rel: (URL) -> String = { url in
+            url.path.hasPrefix(prefix) ? String(url.path.dropFirst(prefix.count)) : url.path
+        }
+        return (editor.openTabs.map(rel), editor.activeTab.map(rel))
     }
 
     // MARK: - Console
@@ -329,17 +493,14 @@ final class AppState: ObservableObject {
     // MARK: - Build / Flash
 
     func build() async {
-        guard let proj = project else { return }
-        if proj.isImplicit {
-            appendConsole("✗ No msp430.toml in \(proj.rootURL.lastPathComponent)/. This folder is browse-only.\n")
-            appendConsole("  Open a specific project folder (one containing main.c or main.s),\n")
-            appendConsole("  or run File → Create Project Config Here… to scaffold one.\n")
-            statusMessage = "No project config"
+        guard let proj = project else {
+            appendConsole("✗ No active project. Click a file inside a sub-project (one whose folder has msp430.toml), or right-click a folder in the tree → Create Project Config Here.\n")
+            statusMessage = "No active project"
             return
         }
         saveAll()
         clearConsole()
-        appendConsole("→ Build [\(activeConfig)] for \(proj.mcu) (\(proj.mode.rawValue) mode)\n")
+        appendConsole("→ Build [\(activeConfig)] \(proj.name) for \(proj.mcu) (\(proj.mode.rawValue) mode)\n")
         isBuilding = true
         defer { isBuilding = false }
 
@@ -378,10 +539,9 @@ final class AppState: ObservableObject {
     }
 
     func flash() async {
-        guard let proj = project else { return }
-        if proj.isImplicit {
-            appendConsole("✗ Browse-only: no msp430.toml in this folder.\n")
-            statusMessage = "No project config"
+        guard let proj = project else {
+            appendConsole("✗ No active project to flash.\n")
+            statusMessage = "No active project"
             return
         }
         isFlashing = true
@@ -400,7 +560,7 @@ final class AppState: ObservableObject {
                 statusMessage = "Flash failed"
                 return
             }
-            appendConsole("\n→ Flashing via mspdebug \(proj.flash.driver)\n")
+            appendConsole("\n→ Flashing \(proj.name) via mspdebug \(proj.flash.driver)\n")
             let result = await Flasher(toolchain: toolchain, project: proj).flash(elf: elf) { [weak self] line in
                 Task { @MainActor [weak self] in self?.appendConsole(line) }
             }

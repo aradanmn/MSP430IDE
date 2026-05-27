@@ -17,14 +17,22 @@ struct StatusBar: View {
 
             Spacer(minLength: 8)
 
+            if appState.workspaceRoot != nil, appState.project == nil {
+                Label("no active project", systemImage: "exclamationmark.triangle.fill")
+                    .font(.caption)
+                    .foregroundStyle(.orange)
+                    .lineLimit(1)
+                    .layoutPriority(1)
+                    .help("Click a file inside a sub-project (one whose folder contains msp430.toml), or right-click a folder in the tree to create one.")
+                Divider().frame(height: 12)
+            }
             if let proj = appState.project {
-                if proj.isImplicit {
-                    Label("browse only", systemImage: "exclamationmark.triangle.fill")
+                if appState.subprojects.count > 1 {
+                    Label(proj.name, systemImage: "folder.badge.gearshape")
                         .font(.caption)
-                        .foregroundStyle(.orange)
+                        .foregroundStyle(.secondary)
                         .lineLimit(1)
                         .layoutPriority(1)
-                        .help("No msp430.toml in this folder. Build is disabled. Use File → Create Project Config Here… to scaffold one.")
                     Divider().frame(height: 12)
                 }
                 Label(proj.mcu, systemImage: "cpu")

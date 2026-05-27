@@ -131,6 +131,86 @@ enum ProjectLoader {
     /// user opened too broad a folder.
     static let scanFileCap = 500
 
+    /// Discovers every subdirectory under `root` that contains its own
+    /// `msp430.toml`. Each is an independent sub-project. The root itself
+    /// is NOT included in the result; callers handle the root specially.
+    static func discoverSubprojects(at root: URL) -> [URL] {
+        let fm = FileManager.default
+        guard let enumerator = fm.enumerator(at: root,
+                                             includingPropertiesForKeys: [.isDirectoryKey],
+                                             options: [.skipsHiddenFiles]) else { return [] }
+        var result: [URL] = []
+        let rootPath = root.path
+        for case let url as URL in enumerator {
+            let canonical = URL(fileURLWithPath: (url.path as NSString).resolvingSymlinksInPath)
+            var isDir: ObjCBool = false
+            guard fm.fileExists(atPath: canonical.path, isDirectory: &isDir), isDir.boolValue else { continue }
+            if canonical.path == rootPath { continue }
+            let tomlURL = canonical.appendingPathComponent(configFileName)
+            if fm.fileExists(atPath: tomlURL.path) {
+                result.append(canonical)
+                enumerator.skipDescendants()
+            }
+        }
+        return result
+    }
+
+    /// Broad workspace-level file scan for the file tree. Unlike
+    /// `scanSources(into:)`, this does NOT stop at nested-project
+    /// boundaries — the whole tree should be browseable. It still
+    /// honors the default excludes (build/, .git/, etc.).
+    static func scanForDisplay(at root: URL) -> [URL] {
+        let fm = FileManager.default
+        guard let enumerator = fm.enumerator(at: root,
+                                             includingPropertiesForKeys: [.isDirectoryKey],
+                                             options: [.skipsHiddenFiles]) else { return [] }
+        let excludes = defaultDisplayExcludes.map { GlobMatcher($0) }
+        let rootPrefix = root.path + "/"
+        var result: [URL] = []
+        for case let fileURL as URL in enumerator {
+            let canonical = URL(fileURLWithPath: (fileURL.path as NSString).resolvingSymlinksInPath)
+            let path = canonical.path
+            let rel: String
+            if path.hasPrefix(rootPrefix) {
+                rel = String(path.dropFirst(rootPrefix.count))
+            } else {
+                rel = canonical.lastPathComponent
+            }
+            if excludes.contains(where: { $0.matches(rel) }) {
+                var isDir: ObjCBool = false
+                if fm.fileExists(atPath: path, isDirectory: &isDir), isDir.boolValue {
+                    enumerator.skipDescendants()
+                }
+                continue
+            }
+            let ext = canonical.pathExtension.lowercased()
+            if ["c", "h", "s", "asm"].contains(ext) {
+                result.append(canonical)
+                if result.count >= scanFileCap {
+                    FileHandle.standardError.write(
+                        "ProjectLoader.scanForDisplay: stopping at \(scanFileCap) files in \(root.lastPathComponent).\n"
+                            .data(using: .utf8) ?? Data()
+                    )
+                    break
+                }
+            }
+        }
+        return result
+    }
+
+    static let defaultDisplayExcludes: [String] = [
+        "build/**", "**/build/**",
+        ".git/**", "**/.git/**",
+        ".msp430ide/**", "**/.msp430ide/**",
+        ".build/**", "**/.build/**",
+        ".swiftpm/**", "**/.swiftpm/**",
+        "**/node_modules/**",
+        "**/bindings/**",
+        "**/Pods/**",
+        "**/DerivedData/**",
+        "**/.DS_Store"
+    ]
+
     static func scanSources(into model: inout ProjectModel) {
         let fm = FileManager.default
         guard let enumerator = fm.enumerator(at: model.rootURL,

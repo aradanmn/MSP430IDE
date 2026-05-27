@@ -1,24 +1,16 @@
 import SwiftUI
+import AppKit
 
 struct FileTreeView: View {
     @EnvironmentObject var appState: AppState
 
     var body: some View {
         Group {
-            if let proj = appState.project {
-                let nodes = projectTree(proj)
+            if let root = appState.workspaceRoot {
+                let nodes = FileNode.buildTree(from: appState.displayFiles, root: root)
                 List(selection: selectionBinding) {
                     OutlineGroup(nodes, children: \.children) { node in
                         FileTreeRow(node: node).tag(node.id)
-                    }
-
-                    Section("Project") {
-                        Label(proj.mcu, systemImage: "cpu")
-                            .foregroundStyle(.secondary)
-                            .font(.caption)
-                        Label(proj.mode.rawValue, systemImage: proj.mode == .native ? "gear.badge" : "hammer")
-                            .foregroundStyle(.secondary)
-                            .font(.caption)
                     }
                 }
                 .listStyle(.sidebar)
@@ -31,20 +23,12 @@ struct FileTreeView: View {
         }
     }
 
-    private func projectTree(_ proj: ProjectModel) -> [FileNode] {
-        FileNode.buildTree(
-            from: proj.sourceFiles + proj.assemblyFiles + proj.headerFiles,
-            root: proj.rootURL
-        )
-    }
-
     private var selectionBinding: Binding<String?> {
         Binding<String?>(
             get: { appState.selectedFile.flatMap { url in idFor(url: url) } },
             set: { newID in
-                guard let id = newID,
-                      let proj = appState.project else { return }
-                let nodes = projectTree(proj)
+                guard let id = newID, let root = appState.workspaceRoot else { return }
+                let nodes = FileNode.buildTree(from: appState.displayFiles, root: root)
                 if let url = lookupURL(in: nodes, id: id) {
                     appState.selectFile(url)
                 }
@@ -53,10 +37,10 @@ struct FileTreeView: View {
     }
 
     private func idFor(url: URL) -> String? {
-        guard let proj = appState.project else { return nil }
-        let rootPrefix = proj.rootURL.path + "/"
-        if url.path.hasPrefix(rootPrefix) {
-            return String(url.path.dropFirst(rootPrefix.count))
+        guard let root = appState.workspaceRoot else { return nil }
+        let prefix = root.path + "/"
+        if url.path.hasPrefix(prefix) {
+            return String(url.path.dropFirst(prefix.count))
         }
         return url.lastPathComponent
     }
@@ -77,20 +61,58 @@ private struct FileTreeRow: View {
     @EnvironmentObject var appState: AppState
 
     var body: some View {
+        let isSubproject = isProjectFolder
         HStack(spacing: 6) {
             Image(systemName: iconName)
                 .foregroundStyle(iconColor)
             Text(node.name)
                 .lineLimit(1)
                 .truncationMode(.middle)
+                .fontWeight(isSubproject ? .semibold : .regular)
             if let url = node.url, appState.buffers[url]?.isDirty == true {
                 Spacer()
                 Circle().fill(Color.orange).frame(width: 6, height: 6)
             }
         }
+        .contextMenu { contextMenuItems }
+    }
+
+    @ViewBuilder
+    private var contextMenuItems: some View {
+        if node.isFolder, let folderURL = folderURL {
+            if isProjectFolder {
+                Text("Sub-project: \(node.name)")
+                    .foregroundStyle(.secondary)
+            } else {
+                Button("Create Project Config Here") {
+                    appState.createProjectConfig(at: folderURL)
+                }
+            }
+            Divider()
+            Button("Reveal in Finder") {
+                NSWorkspace.shared.activateFileViewerSelecting([folderURL])
+            }
+        } else if let url = node.url {
+            Button("Open") { appState.selectFile(url) }
+            Divider()
+            Button("Reveal in Finder") {
+                NSWorkspace.shared.activateFileViewerSelecting([url])
+            }
+        }
+    }
+
+    private var folderURL: URL? {
+        guard node.isFolder, let root = appState.workspaceRoot else { return nil }
+        return root.appendingPathComponent(node.id)
+    }
+
+    private var isProjectFolder: Bool {
+        guard let folderURL = folderURL else { return false }
+        return appState.subprojects[folderURL] != nil
     }
 
     private var iconName: String {
+        if isProjectFolder { return "folder.badge.gearshape" }
         if node.isFolder { return "folder" }
         switch node.url?.pathExtension.lowercased() {
         case "c": return "c.square"
@@ -104,7 +126,8 @@ private struct FileTreeRow: View {
     }
 
     private var iconColor: Color {
-        if node.isFolder { return .accentColor }
+        if isProjectFolder { return .accentColor }
+        if node.isFolder { return .secondary }
         switch node.url?.pathExtension.lowercased() {
         case "c": return .blue
         case "h": return .purple
