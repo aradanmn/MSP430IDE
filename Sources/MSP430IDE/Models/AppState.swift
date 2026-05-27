@@ -521,7 +521,10 @@ final class AppState: ObservableObject {
             return
         }
         saveAll()
-        clearConsole()
+        if !consoleOutput.isEmpty && !consoleOutput.hasSuffix("\n\n") {
+            appendConsole("\n")
+        }
+        appendConsole("────────────────────────────────────────\n")
         appendConsole("→ Build [\(activeConfig)] \(proj.name) for \(proj.mcu) (\(proj.mode.rawValue) mode)\n")
         isBuilding = true
         defer { isBuilding = false }

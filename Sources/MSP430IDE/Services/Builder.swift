@@ -55,6 +55,14 @@ struct Builder {
         }
 
         var linkArgs = [mcuFlag]
+        // MSP430 GCC's built-in spec file auto-adds `--gc-sections` to every
+        // link, which silently strips user-defined sections like `.vectors`
+        // (the reset vector at 0xFFFE points at _start — the CPU references
+        // it but the linker can't see that, so the whole section gets
+        // discarded). We disable it by default; users who genuinely want
+        // dead-section elimination can re-enable via ldflags = ["-Wl,--gc-sections"]
+        // and add KEEP() entries to their linker scripts.
+        linkArgs.append("-Wl,--no-gc-sections")
         linkArgs += effective.ldflags
 
         // Bare-metal MSP430: assembly-only projects (no .c with main) use a
