@@ -23,6 +23,11 @@ struct ConsoleView: View {
             .padding(.horizontal, 10)
             .padding(.vertical, 6)
             .background(.bar)
+            .overlay(alignment: .bottom) {
+                Rectangle()
+                    .fill(Color(nsColor: .separatorColor))
+                    .frame(height: 1)
+            }
 
             ScrollViewReader { proxy in
                 ScrollView {
