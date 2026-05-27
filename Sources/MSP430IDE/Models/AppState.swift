@@ -97,6 +97,63 @@ final class AppState: ObservableObject {
         self.project = proj
     }
 
+    /// Closes the current project. Prompts once if any buffer is dirty.
+    /// Returns true if the project was closed; false if the user cancelled.
+    @discardableResult
+    func closeProject() -> Bool {
+        guard project != nil else { return true }
+
+        let dirtyBuffers = buffers.values.filter { $0.isDirty }
+        if !dirtyBuffers.isEmpty {
+            let alert = NSAlert()
+            if dirtyBuffers.count == 1, let buf = dirtyBuffers.first {
+                alert.messageText = "Save changes to \(buf.url.lastPathComponent)?"
+            } else {
+                alert.messageText = "Save changes to \(dirtyBuffers.count) files?"
+            }
+            alert.informativeText = "Your changes will be lost if you don't save them."
+            alert.addButton(withTitle: "Save All")
+            alert.addButton(withTitle: "Don't Save")
+            alert.addButton(withTitle: "Cancel")
+            let resp = alert.runModal()
+            switch resp {
+            case .alertFirstButtonReturn:
+                for buf in dirtyBuffers {
+                    do {
+                        try buf.text.write(to: buf.url, atomically: true, encoding: .utf8)
+                        buf.markClean()
+                    } catch {
+                        appendConsole("Save failed for \(buf.url.lastPathComponent): \(error.localizedDescription)\n")
+                    }
+                }
+            case .alertSecondButtonReturn:
+                break
+            default:
+                return false
+            }
+        }
+
+        if let proj = project {
+            let snap = editor.snapshot(for: proj)
+            workspace.activeConfig = activeConfig
+            workspace.openTabs = snap.openTabs
+            workspace.activeTab = snap.activeTab
+            workspace.selectedFile = snap.activeTab
+            workspace.openFiles = snap.openTabs
+            workspace.save(for: proj)
+        }
+
+        editor.closeAll()
+        buffers = [:]
+        selectedFile = nil
+        project = nil
+        workspace = WorkspaceState()
+        activeConfig = "Debug"
+        consoleOutput = ""
+        statusMessage = "Ready"
+        return true
+    }
+
     // MARK: - Tabs / buffers
 
     func selectFile(_ url: URL) {

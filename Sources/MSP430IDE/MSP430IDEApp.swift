@@ -36,6 +36,13 @@ struct MSP430IDEApp: App {
                     appState.promptOpenProject()
                 }
                 .keyboardShortcut("o", modifiers: .command)
+
+                Divider()
+
+                Button("Close Project") {
+                    appState.closeProject()
+                }
+                .disabled(appState.project == nil)
             }
 
             CommandGroup(replacing: .saveItem) {

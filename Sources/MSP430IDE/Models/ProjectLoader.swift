@@ -38,7 +38,16 @@ enum ProjectLoader {
         let sourcesTable = raw["sources"]?.tableValue ?? [:]
         let sourceIncludes = sourcesTable["include"]?.stringArray ?? []
         let sourceExcludes = sourcesTable["exclude"]?.stringArray ?? [
-            "build/**", ".git/**", ".msp430ide/**", ".build/**", "**/.DS_Store"
+            "build/**", "**/build/**",
+            ".git/**", "**/.git/**",
+            ".msp430ide/**", "**/.msp430ide/**",
+            ".build/**", "**/.build/**",
+            ".swiftpm/**", "**/.swiftpm/**",
+            "**/node_modules/**",
+            "**/bindings/**",
+            "**/Pods/**",
+            "**/DerivedData/**",
+            "**/.DS_Store"
         ]
 
         let tcTable = raw["toolchain"]?.tableValue ?? [:]
@@ -113,6 +122,11 @@ enum ProjectLoader {
         )
     }
 
+    /// Maximum number of source files a single project will index. Beyond
+    /// this, we stop scanning and log a warning — almost certainly the
+    /// user opened too broad a folder.
+    static let scanFileCap = 500
+
     static func scanSources(into model: inout ProjectModel) {
         let fm = FileManager.default
         guard let enumerator = fm.enumerator(at: model.rootURL,
@@ -124,18 +138,36 @@ enum ProjectLoader {
         var s: [URL] = []
         var h: [URL] = []
         let rootPrefix = model.rootURL.path + "/"
+        let rootPath = model.rootURL.path
 
         for case let fileURL as URL in enumerator {
             let canonicalPath = (fileURL.path as NSString).resolvingSymlinksInPath
             let resolved = URL(fileURLWithPath: canonicalPath)
             let path = resolved.path
+
+            // Don't descend into nested projects (subdirs that have their
+            // own msp430.toml).  They should be opened independently.
+            var isDir: ObjCBool = false
+            if fm.fileExists(atPath: path, isDirectory: &isDir), isDir.boolValue {
+                if path != rootPath {
+                    let nested = resolved.appendingPathComponent(configFileName).path
+                    if fm.fileExists(atPath: nested) {
+                        enumerator.skipDescendants()
+                        continue
+                    }
+                }
+            }
+
             let rel: String
             if path.hasPrefix(rootPrefix) {
                 rel = String(path.dropFirst(rootPrefix.count))
             } else {
                 rel = resolved.lastPathComponent
             }
-            if excludes.contains(where: { $0.matches(rel) }) { continue }
+            if excludes.contains(where: { $0.matches(rel) }) {
+                if isDir.boolValue { enumerator.skipDescendants() }
+                continue
+            }
 
             let ext = resolved.pathExtension.lowercased()
             switch ext {
@@ -146,6 +178,14 @@ enum ProjectLoader {
             case "h":
                 h.append(resolved)
             default:
+                break
+            }
+
+            if c.count + s.count + h.count >= scanFileCap {
+                FileHandle.standardError.write(
+                    "ProjectLoader: stopping scan at \(scanFileCap) files in \(model.rootURL.lastPathComponent). Probably opened too broad a folder.\n"
+                        .data(using: .utf8) ?? Data()
+                )
                 break
             }
         }

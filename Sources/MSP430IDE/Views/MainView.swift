@@ -9,11 +9,14 @@ struct MainView: View {
                 FileTreeView()
                     .navigationSplitViewColumnWidth(min: 180, ideal: 220, max: 360)
             } detail: {
-                VSplitView {
+                ResizableVerticalSplit(
+                    defaultFraction: 0.25,
+                    minTopHeight: 150,
+                    minBottomHeight: 60
+                ) {
                     EditorPane()
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } bottom: {
                     ConsoleView()
-                        .frame(minHeight: 100, idealHeight: 180)
                 }
                 .frame(minWidth: 400)
             }
