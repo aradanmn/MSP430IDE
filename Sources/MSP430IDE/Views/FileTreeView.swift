@@ -65,7 +65,7 @@ struct FileRow: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
-                    .truncationMode(.middle)
+                    .truncationMode(.tail)
                     .help(url.path)
             }
             if isDirty {

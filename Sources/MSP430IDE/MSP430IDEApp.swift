@@ -47,6 +47,39 @@ struct MSP430IDEApp: App {
                     .keyboardShortcut("s", modifiers: [.command, .option])
             }
 
+            CommandMenu("Tabs") {
+                Button("Close Tab") {
+                    if let url = appState.selectedFile { appState.closeTab(url) }
+                }
+                .keyboardShortcut("w", modifiers: .command)
+                .disabled(appState.selectedFile == nil)
+
+                Button("Close All Tabs") { appState.closeAllTabs() }
+                    .keyboardShortcut("w", modifiers: [.command, .option])
+                    .disabled(appState.editor.openTabs.isEmpty)
+
+                Button("Reopen Last Closed") { appState.reopenLastClosed() }
+                    .keyboardShortcut("t", modifiers: [.command, .shift])
+
+                Divider()
+
+                Button("Next Tab") { appState.nextTab() }
+                    .keyboardShortcut("]", modifiers: [.command, .shift])
+                    .disabled(appState.editor.openTabs.count < 2)
+
+                Button("Previous Tab") { appState.prevTab() }
+                    .keyboardShortcut("[", modifiers: [.command, .shift])
+                    .disabled(appState.editor.openTabs.count < 2)
+
+                Divider()
+
+                ForEach(0..<9, id: \.self) { i in
+                    Button("Go to Tab \(i + 1)") { appState.selectTabAt(i) }
+                        .keyboardShortcut(KeyEquivalent(Character("\(i + 1)")), modifiers: .command)
+                        .disabled(appState.editor.openTabs.count <= i)
+                }
+            }
+
             CommandMenu("Build") {
                 Button("Build") {
                     Task { await appState.build() }

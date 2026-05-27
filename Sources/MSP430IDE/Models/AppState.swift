@@ -1,5 +1,6 @@
 import SwiftUI
 import AppKit
+import Combine
 
 @MainActor
 final class AppState: ObservableObject {
@@ -14,8 +15,18 @@ final class AppState: ObservableObject {
     @Published var statusMessage: String = "Ready"
     @Published var toolchain: Toolchain
 
+    let editor = EditorService()
+    private var editorSubscription: AnyCancellable?
+
     init() {
         self.toolchain = Toolchain.detect()
+        // Forward editor changes through AppState so SwiftUI views observing
+        // AppState re-render when tabs change.
+        editorSubscription = editor.objectWillChange.sink { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.objectWillChange.send()
+            }
+        }
     }
 
     // MARK: - Project lifecycle
@@ -58,12 +69,14 @@ final class AppState: ObservableObject {
             self.buffers = [:]
             self.selectedFile = nil
 
-            if let rel = ws.selectedFile {
-                let candidate = proj.rootURL.appendingPathComponent(rel)
-                if FileManager.default.fileExists(atPath: candidate.path) {
-                    selectFile(candidate)
-                }
+            editor.restore(workspace: ws, project: proj)
+            for url in editor.openTabs where buffers[url] == nil {
+                buffers[url] = TextBuffer.load(from: url)
             }
+            if let active = editor.activeTab {
+                selectedFile = active
+            }
+
             if selectedFile == nil {
                 let preferred = proj.sourceFiles.first(where: { $0.lastPathComponent == "main.c" })
                     ?? proj.assemblyFiles.first(where: { $0.lastPathComponent == "main.s" })
@@ -84,20 +97,80 @@ final class AppState: ObservableObject {
         self.project = proj
     }
 
-    // MARK: - Buffers
+    // MARK: - Tabs / buffers
 
     func selectFile(_ url: URL) {
+        editor.open(url)
         selectedFile = url
         if buffers[url] == nil {
             buffers[url] = TextBuffer.load(from: url)
         }
-        if let proj = project {
-            let prefix = proj.rootURL.path + "/"
-            if url.path.hasPrefix(prefix) {
-                workspace.selectedFile = String(url.path.dropFirst(prefix.count))
-                persistWorkspace()
+        persistWorkspace()
+    }
+
+    func closeTab(_ url: URL) {
+        if let buf = buffers[url], buf.isDirty {
+            let alert = NSAlert()
+            alert.messageText = "Save changes to \(url.lastPathComponent)?"
+            alert.informativeText = "Your changes will be lost if you don't save them."
+            alert.addButton(withTitle: "Save")
+            alert.addButton(withTitle: "Don't Save")
+            alert.addButton(withTitle: "Cancel")
+            let resp = alert.runModal()
+            switch resp {
+            case .alertFirstButtonReturn:
+                try? buf.text.write(to: url, atomically: true, encoding: .utf8)
+                buf.markClean()
+            case .alertThirdButtonReturn:
+                return
+            default:
+                break
             }
         }
+        editor.close(url)
+        buffers.removeValue(forKey: url)
+        selectedFile = editor.activeTab
+        persistWorkspace()
+    }
+
+    func closeAllTabs() {
+        for url in editor.openTabs {
+            if let buf = buffers[url], buf.isDirty {
+                try? buf.text.write(to: url, atomically: true, encoding: .utf8)
+                buf.markClean()
+            }
+        }
+        editor.closeAll()
+        buffers = [:]
+        selectedFile = nil
+        persistWorkspace()
+    }
+
+    func nextTab() {
+        editor.nextTab()
+        selectedFile = editor.activeTab
+        persistWorkspace()
+    }
+
+    func prevTab() {
+        editor.prevTab()
+        selectedFile = editor.activeTab
+        persistWorkspace()
+    }
+
+    func selectTabAt(_ index: Int) {
+        editor.selectIndex(index)
+        selectedFile = editor.activeTab
+        persistWorkspace()
+    }
+
+    func reopenLastClosed() {
+        guard let url = editor.reopenLastClosed() else { return }
+        if buffers[url] == nil, FileManager.default.fileExists(atPath: url.path) {
+            buffers[url] = TextBuffer.load(from: url)
+        }
+        selectedFile = url
+        persistWorkspace()
     }
 
     func saveCurrent() {
@@ -133,7 +206,12 @@ final class AppState: ObservableObject {
 
     private func persistWorkspace() {
         guard let proj = project else { return }
+        let snap = editor.snapshot(for: proj)
         workspace.activeConfig = activeConfig
+        workspace.openTabs = snap.openTabs
+        workspace.activeTab = snap.activeTab
+        workspace.selectedFile = snap.activeTab  // legacy mirror
+        workspace.openFiles = snap.openTabs       // legacy mirror
         workspace.save(for: proj)
     }
 

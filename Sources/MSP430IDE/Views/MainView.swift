@@ -29,14 +29,36 @@ struct EditorPane: View {
     @EnvironmentObject var appState: AppState
 
     var body: some View {
-        if let url = appState.selectedFile, let buffer = appState.buffers[url] {
-            VStack(spacing: 0) {
-                FileHeader(url: url, buffer: buffer)
-                CodeEditorView(buffer: buffer)
+        VStack(spacing: 0) {
+            if !appState.editor.openTabs.isEmpty {
+                TabBar()
             }
-        } else {
-            WelcomeView()
+            if let url = appState.selectedFile, let buffer = appState.buffers[url] {
+                EditorPaneContent(url: url, buffer: buffer)
+                    .id(url)
+            } else {
+                WelcomeView()
+            }
         }
+    }
+}
+
+private struct EditorPaneContent: View {
+    let url: URL
+    @ObservedObject var buffer: TextBuffer
+    @State private var gutter = GutterState()
+
+    var body: some View {
+        VStack(spacing: 0) {
+            FileHeader(url: url, buffer: buffer)
+            HStack(spacing: 0) {
+                GutterView(state: gutter)
+                CodeEditorView(buffer: buffer, gutter: gutter)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }
 

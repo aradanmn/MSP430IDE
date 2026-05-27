@@ -3,9 +3,10 @@ import AppKit
 
 struct CodeEditorView: NSViewRepresentable {
     @ObservedObject var buffer: TextBuffer
+    let gutter: GutterState
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(buffer: buffer)
+        Coordinator(buffer: buffer, gutter: gutter)
     }
 
     func makeNSView(context: Context) -> NSScrollView {
@@ -34,6 +35,15 @@ struct CodeEditorView: NSViewRepresentable {
         textView.isAutomaticDataDetectionEnabled = false
         textView.isContinuousSpellCheckingEnabled = false
 
+        textView.minSize = NSSize(width: 0, height: 0)
+        textView.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
+        textView.isHorizontallyResizable = false
+        textView.isVerticallyResizable = true
+        textView.autoresizingMask = [.width]
+        textView.textContainer?.widthTracksTextView = true
+        textView.textContainer?.heightTracksTextView = false
+        textView.textContainer?.containerSize = NSSize(width: 0, height: CGFloat.greatestFiniteMagnitude)
+
         let font = NSFont.monospacedSystemFont(ofSize: 13, weight: .regular)
         textView.font = font
         textView.textColor = NSColor.labelColor
@@ -48,12 +58,13 @@ struct CodeEditorView: NSViewRepresentable {
             CHighlighter.highlight(storage: storage)
         }
 
-        context.coordinator.textView = textView
+        context.coordinator.attach(textView: textView, scrollView: scrollView)
         return scrollView
     }
 
     func updateNSView(_ scrollView: NSScrollView, context: Context) {
         context.coordinator.buffer = buffer
+        context.coordinator.gutter = gutter
         guard let tv = scrollView.documentView as? NSTextView else { return }
         if tv.string != buffer.text {
             let prev = tv.selectedRange()
@@ -63,15 +74,53 @@ struct CodeEditorView: NSViewRepresentable {
             }
             let len = (tv.string as NSString).length
             tv.setSelectedRange(NSRange(location: min(prev.location, len), length: 0))
+            context.coordinator.scheduleRecompute()
         }
     }
 
     final class Coordinator: NSObject, NSTextViewDelegate {
         var buffer: TextBuffer
+        var gutter: GutterState
         weak var textView: NSTextView?
+        weak var scrollView: NSScrollView?
 
-        init(buffer: TextBuffer) {
+        init(buffer: TextBuffer, gutter: GutterState) {
             self.buffer = buffer
+            self.gutter = gutter
+        }
+
+        deinit {
+            NotificationCenter.default.removeObserver(self)
+        }
+
+        func attach(textView: NSTextView, scrollView: NSScrollView) {
+            self.textView = textView
+            self.scrollView = scrollView
+
+            scrollView.contentView.postsBoundsChangedNotifications = true
+            NotificationCenter.default.addObserver(
+                self,
+                selector: #selector(boundsDidChange(_:)),
+                name: NSView.boundsDidChangeNotification,
+                object: scrollView.contentView
+            )
+            textView.postsFrameChangedNotifications = true
+            NotificationCenter.default.addObserver(
+                self,
+                selector: #selector(frameDidChange(_:)),
+                name: NSView.frameDidChangeNotification,
+                object: textView
+            )
+
+            scheduleRecompute()
+        }
+
+        @objc private func boundsDidChange(_ note: Notification) {
+            scheduleRecompute()
+        }
+
+        @objc private func frameDidChange(_ note: Notification) {
+            scheduleRecompute()
         }
 
         func textDidChange(_ notification: Notification) {
@@ -80,6 +129,60 @@ struct CodeEditorView: NSViewRepresentable {
             buffer.markDirty()
             if let storage = tv.textStorage {
                 CHighlighter.highlight(storage: storage)
+            }
+            scheduleRecompute()
+        }
+
+        func scheduleRecompute() {
+            DispatchQueue.main.async { [weak self] in
+                self?.recompute()
+            }
+        }
+
+        private func recompute() {
+            guard let tv = textView,
+                  let layoutManager = tv.layoutManager,
+                  let container = tv.textContainer else { return }
+
+            let visibleRect = tv.visibleRect
+            let nsString = tv.string as NSString
+            let visibleGlyphRange = layoutManager.glyphRange(forBoundingRect: visibleRect, in: container)
+            layoutManager.ensureLayout(forGlyphRange: visibleGlyphRange)
+            let visibleCharRange = layoutManager.characterRange(forGlyphRange: visibleGlyphRange, actualGlyphRange: nil)
+
+            var startLine = 1
+            if visibleCharRange.location > 0 {
+                let prior = NSRange(location: 0, length: visibleCharRange.location)
+                nsString.enumerateSubstrings(in: prior, options: [.byLines, .substringNotRequired]) { _, _, _, _ in
+                    startLine += 1
+                }
+            }
+
+            let inset = tv.textContainerInset.height
+            var lines: [GutterState.VisibleLine] = []
+            var lineNumber = startLine
+
+            nsString.enumerateSubstrings(in: visibleCharRange, options: [.byLines, .substringNotRequired]) { _, substringRange, _, _ in
+                let glyphIndex = layoutManager.glyphIndexForCharacter(at: substringRange.location)
+                var effectiveRange = NSRange(location: 0, length: 0)
+                let lineRect = layoutManager.lineFragmentRect(forGlyphAt: glyphIndex, effectiveRange: &effectiveRange)
+                let y = lineRect.minY - visibleRect.minY + inset
+                lines.append(.init(number: lineNumber, y: y))
+                lineNumber += 1
+            }
+
+            var totalLines = 1
+            let fullRange = NSRange(location: 0, length: nsString.length)
+            nsString.enumerateSubstrings(in: fullRange, options: [.byLines, .substringNotRequired]) { _, _, _, _ in
+                totalLines += 1
+            }
+            if totalLines > 1 { totalLines -= 1 }
+
+            if gutter.visibleLines != lines {
+                gutter.visibleLines = lines
+            }
+            if gutter.totalLines != totalLines {
+                gutter.totalLines = totalLines
             }
         }
     }

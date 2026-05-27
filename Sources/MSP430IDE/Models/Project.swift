@@ -64,16 +64,19 @@ struct ProjectModel: Equatable {
     /// Empty string (or missing key) means no suffix is needed — basename is unique.
     var disambiguators: [URL: String] = [:]
 
-    /// For each URL whose basename collides with another in `urls`, returns the shortest
-    /// parent-dir path (relative to `root`) that uniquely identifies it. Prefixed with
-    /// "…/" if it's a strict suffix of the full relative path. URLs with unique basenames
-    /// are not included.
+    /// For each URL whose basename collides with another in `urls`, returns a short label
+    /// that uniquely identifies it within the group. Strategy: prefer the closest-to-leaf
+    /// parent directory whose name appears in no other group member's path. If no single
+    /// component is unique, fall back to the shortest leaf-rooted path suffix that's
+    /// unique among the group (prefixed with "…/"). URLs with unique basenames are not
+    /// included in the result.
     static func computeDisambiguators(for urls: [URL], relativeTo root: URL) -> [URL: String] {
         var result: [URL: String] = [:]
         let rootPrefix = root.path + "/"
         let groups = Dictionary(grouping: urls, by: { $0.lastPathComponent })
 
         for (_, group) in groups where group.count > 1 {
+            // Parent-dir components (leaf-to-root order is dirs.reversed()), relative to root.
             let parts: [(URL, [String])] = group.map { url in
                 let path = url.path
                 let rel: String
@@ -88,6 +91,18 @@ struct ProjectModel: Equatable {
 
             for (url, dirs) in parts {
                 guard !dirs.isEmpty else { continue }
+
+                // Pass 1: find the closest-to-leaf single dir name that appears in no
+                // other group member's parent dirs.
+                let otherDirs: Set<String> = parts.reduce(into: []) { acc, p in
+                    if p.0 != url { acc.formUnion(p.1) }
+                }
+                if let unique = dirs.reversed().first(where: { !otherDirs.contains($0) }) {
+                    result[url] = unique
+                    continue
+                }
+
+                // Pass 2: shortest unique leaf-rooted path suffix among the group.
                 var n = 1
                 while n <= dirs.count {
                     let suffix = dirs.suffix(n)

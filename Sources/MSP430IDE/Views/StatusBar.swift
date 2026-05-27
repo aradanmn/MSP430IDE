@@ -34,7 +34,7 @@ struct StatusBar: View {
                     .layoutPriority(1)
             }
         }
-        .padding(.horizontal, 10)
+        .padding(.horizontal, 28)
         .padding(.vertical, 4)
         .background(.bar)
         .overlay(alignment: .top) {
