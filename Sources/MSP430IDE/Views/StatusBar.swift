@@ -18,6 +18,15 @@ struct StatusBar: View {
             Spacer(minLength: 8)
 
             if let proj = appState.project {
+                if proj.isImplicit {
+                    Label("browse only", systemImage: "exclamationmark.triangle.fill")
+                        .font(.caption)
+                        .foregroundStyle(.orange)
+                        .lineLimit(1)
+                        .layoutPriority(1)
+                        .help("No msp430.toml in this folder. Build is disabled. Use File → Create Project Config Here… to scaffold one.")
+                    Divider().frame(height: 12)
+                }
                 Label(proj.mcu, systemImage: "cpu")
                     .font(.caption)
                     .foregroundStyle(.secondary)

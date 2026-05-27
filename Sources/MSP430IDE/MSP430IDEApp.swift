@@ -43,6 +43,11 @@ struct MSP430IDEApp: App {
                     appState.closeProject()
                 }
                 .disabled(appState.project == nil)
+
+                Button("Create Project Config Here…") {
+                    appState.createProjectConfigHere()
+                }
+                .disabled(appState.project == nil || appState.project?.isImplicit != true)
             }
 
             CommandGroup(replacing: .saveItem) {

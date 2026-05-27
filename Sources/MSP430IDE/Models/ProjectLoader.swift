@@ -19,7 +19,8 @@ enum ProjectLoader {
         let tomlURL = url.appendingPathComponent(configFileName)
         var raw: [String: TOMLValue] = [:]
 
-        if FileManager.default.fileExists(atPath: tomlURL.path) {
+        let hasToml = FileManager.default.fileExists(atPath: tomlURL.path)
+        if hasToml {
             let text = try String(contentsOf: tomlURL, encoding: .utf8)
             do {
                 raw = try TOMLParser.parse(text)
@@ -107,6 +108,9 @@ enum ProjectLoader {
             configs: configs,
             external: external
         )
+        // hasToml is captured from the outer scope; if false, the project
+        // is "implicit" — we'll allow browsing but block building.
+        model.isImplicit = !hasToml && (try? Data(contentsOf: url.appendingPathComponent(legacyConfigFileName))) == nil
         scanSources(into: &model)
         return model
     }

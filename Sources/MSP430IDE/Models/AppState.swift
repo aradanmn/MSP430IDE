@@ -97,6 +97,44 @@ final class AppState: ObservableObject {
         self.project = proj
     }
 
+    /// Scaffolds an msp430.toml in the current project's root folder and
+    /// reloads. Useful when the user opens a plain folder and wants to
+    /// turn it into a buildable project. Will not overwrite an existing
+    /// msp430.toml.
+    func createProjectConfigHere() {
+        guard let proj = project else { return }
+        let configURL = proj.rootURL.appendingPathComponent(ProjectLoader.configFileName)
+        guard !FileManager.default.fileExists(atPath: configURL.path) else {
+            appendConsole("msp430.toml already exists at \(configURL.path)\n")
+            return
+        }
+        let toml = """
+        [project]
+        mcu  = "msp430g2553"
+        mode = "native"
+
+        [flash]
+        driver = "tilib"
+        env    = { DYLD_LIBRARY_PATH = "~/.local/lib" }
+
+        [defaults]
+        cflags = ["-Wall", "-Wextra", "-g"]
+
+        # Source discovery is automatic by default. Narrow it explicitly
+        # if this folder contains multiple unrelated source sets:
+        # [sources]
+        # include = ["main.c", "hal/leds.c"]
+        # exclude = ["**/*.asm"]
+        """
+        do {
+            try toml.write(to: configURL, atomically: true, encoding: .utf8)
+            appendConsole("✓ Created \(configURL.path)\n")
+            openProject(at: proj.rootURL)
+        } catch {
+            appendConsole("Failed to write msp430.toml: \(error.localizedDescription)\n")
+        }
+    }
+
     /// Closes the current project. Prompts once if any buffer is dirty.
     /// Returns true if the project was closed; false if the user cancelled.
     @discardableResult
@@ -292,6 +330,13 @@ final class AppState: ObservableObject {
 
     func build() async {
         guard let proj = project else { return }
+        if proj.isImplicit {
+            appendConsole("✗ No msp430.toml in \(proj.rootURL.lastPathComponent)/. This folder is browse-only.\n")
+            appendConsole("  Open a specific project folder (one containing main.c or main.s),\n")
+            appendConsole("  or run File → Create Project Config Here… to scaffold one.\n")
+            statusMessage = "No project config"
+            return
+        }
         saveAll()
         clearConsole()
         appendConsole("→ Build [\(activeConfig)] for \(proj.mcu) (\(proj.mode.rawValue) mode)\n")
@@ -334,6 +379,11 @@ final class AppState: ObservableObject {
 
     func flash() async {
         guard let proj = project else { return }
+        if proj.isImplicit {
+            appendConsole("✗ Browse-only: no msp430.toml in this folder.\n")
+            statusMessage = "No project config"
+            return
+        }
         isFlashing = true
         defer { isFlashing = false }
 

@@ -60,6 +60,13 @@ struct ProjectModel: Equatable {
     var sourceFiles: [URL] = []
     var headerFiles: [URL] = []
     var assemblyFiles: [URL] = []
+
+    /// True when the project was opened from a folder that had no
+    /// `msp430.toml` file. In that case we can browse files but won't
+    /// attempt to build — the source set is implicit and almost
+    /// certainly not what the user intends (e.g. multiple `_start`
+    /// labels across unrelated exercises).
+    var isImplicit: Bool = false
     /// Parent-path suffix shown next to each URL's basename for disambiguation.
     /// Empty string (or missing key) means no suffix is needed — basename is unique.
     var disambiguators: [URL: String] = [:]
