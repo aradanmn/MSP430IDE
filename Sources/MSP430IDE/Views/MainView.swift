@@ -16,7 +16,7 @@ struct MainView: View {
                 ) {
                     EditorPane()
                 } bottom: {
-                    ConsoleView()
+                    BottomPanel()
                 }
                 .frame(minWidth: 400)
             }
@@ -55,7 +55,7 @@ private struct EditorPaneContent: View {
         VStack(spacing: 0) {
             FileHeader(url: url, buffer: buffer)
             HStack(spacing: 0) {
-                GutterView(state: gutter)
+                GutterView(state: gutter, url: url)
                 CodeEditorView(buffer: buffer, gutter: gutter)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }

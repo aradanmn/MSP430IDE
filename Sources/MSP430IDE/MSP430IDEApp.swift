@@ -5,6 +5,7 @@ import AppKit
 struct MSP430IDEApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
     @StateObject private var appState = AppState()
+    @StateObject private var panels = PanelManager()
 
     init() {
         if let path = ProcessInfo.processInfo.environment["MSP430IDE_VALIDATE"] {
@@ -20,7 +21,19 @@ struct MSP430IDEApp: App {
         WindowGroup("MSP430 IDE") {
             MainView()
                 .environmentObject(appState)
+                .environmentObject(panels)
                 .frame(minWidth: 720, minHeight: 480)
+                .onAppear {
+                    // Whenever a new build produces diagnostics, flip the
+                    // bottom panel to Problems. Auto-switch on any
+                    // severity (errors or warnings) per user preference.
+                    appState.onDiagnosticsUpdated = { [weak panels] diags in
+                        guard !diags.isEmpty else { return }
+                        Task { @MainActor [weak panels] in
+                            panels?.showPanel(.problems)
+                        }
+                    }
+                }
         }
         .windowToolbarStyle(.unified)
         .defaultSize(width: 1180, height: 760)

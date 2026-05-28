@@ -2,6 +2,10 @@ import SwiftUI
 import AppKit
 import Combine
 
+extension Notification.Name {
+    static let msp430EditorJumpToLine = Notification.Name("MSP430IDE.editorJumpToLine")
+}
+
 @MainActor
 final class AppState: ObservableObject {
     /// Active project for build/flash. In workspace mode this is the
@@ -32,6 +36,17 @@ final class AppState: ObservableObject {
     @Published var isFlashing: Bool = false
     @Published var statusMessage: String = "Ready"
     @Published var toolchain: Toolchain
+
+    /// Per-file diagnostics from the most recent build. Drives gutter
+    /// markers and clickable console lines.
+    @Published var diagnostics: [URL: [Diagnostic]] = [:]
+    /// Flat list in the order they appeared in the build output, for the
+    /// console to render as clickable rows.
+    @Published var diagnosticsInOrder: [Diagnostic] = []
+
+    /// Fired after a build's diagnostics have been parsed. Subscribers
+    /// (e.g. PanelManager) can react by surfacing the Problems tab.
+    var onDiagnosticsUpdated: (([Diagnostic]) -> Void)?
 
     let editor = EditorService()
     private var editorSubscription: AnyCancellable?
@@ -499,7 +514,55 @@ final class AppState: ObservableObject {
     // MARK: - Console
 
     func appendConsole(_ s: String) { consoleOutput += s }
-    func clearConsole() { consoleOutput = "" }
+    func clearConsole() {
+        consoleOutput = ""
+        diagnostics = [:]
+        diagnosticsInOrder = []
+    }
+
+    /// Re-parse a slice of the console for diagnostics; called after each
+    /// build so the new errors/warnings appear in the gutter and the
+    /// console becomes clickable.
+    func ingestDiagnostics(fromOffset offset: Int, projectRoot: URL?) {
+        guard offset >= 0, offset <= consoleOutput.count else { return }
+        let startIndex = consoleOutput.index(consoleOutput.startIndex, offsetBy: offset)
+        let slice = String(consoleOutput[startIndex...])
+        let newDiags = DiagnosticParser.parse(output: slice, projectRoot: projectRoot)
+        diagnosticsInOrder = newDiags
+        var byFile: [URL: [Diagnostic]] = [:]
+        for diag in newDiags {
+            byFile[diag.file, default: []].append(diag)
+        }
+        diagnostics = byFile
+        onDiagnosticsUpdated?(newDiags)
+    }
+
+    /// Jump to the source location of a diagnostic. Opens the file as a
+    /// tab if needed; tells any live editor coordinator to scroll & select.
+    func jumpTo(diagnostic: Diagnostic) {
+        let fm = FileManager.default
+        guard fm.fileExists(atPath: diagnostic.file.path) else {
+            appendConsole("Couldn't open \(diagnostic.file.path)\n")
+            return
+        }
+        selectFile(diagnostic.file)
+        // Defer until the editor view has had a chance to (re)build after
+        // selectFile flipped state.
+        let line = diagnostic.line
+        let column = diagnostic.column ?? 1
+        let url = diagnostic.file
+        DispatchQueue.main.async {
+            NotificationCenter.default.post(
+                name: .msp430EditorJumpToLine,
+                object: nil,
+                userInfo: [
+                    "url": url,
+                    "line": line,
+                    "column": column
+                ]
+            )
+        }
+    }
 
     func cleanBuild() {
         guard let proj = project else { return }
@@ -527,7 +590,11 @@ final class AppState: ObservableObject {
         appendConsole("────────────────────────────────────────\n")
         appendConsole("→ Build [\(activeConfig)] \(proj.name) for \(proj.mcu) (\(proj.mode.rawValue) mode)\n")
         isBuilding = true
-        defer { isBuilding = false }
+        let outputStart = consoleOutput.count
+        defer {
+            isBuilding = false
+            ingestDiagnostics(fromOffset: outputStart, projectRoot: proj.rootURL)
+        }
 
         switch proj.mode {
         case .native:

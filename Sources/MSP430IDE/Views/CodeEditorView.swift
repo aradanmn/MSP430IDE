@@ -111,8 +111,43 @@ struct CodeEditorView: NSViewRepresentable {
                 name: NSView.frameDidChangeNotification,
                 object: textView
             )
+            NotificationCenter.default.addObserver(
+                self,
+                selector: #selector(jumpToLine(_:)),
+                name: .msp430EditorJumpToLine,
+                object: nil
+            )
 
             scheduleRecompute()
+        }
+
+        @objc private func jumpToLine(_ note: Notification) {
+            guard let info = note.userInfo,
+                  let url = info["url"] as? URL,
+                  let line = info["line"] as? Int,
+                  url == buffer.url,
+                  let tv = textView else { return }
+            let column = (info["column"] as? Int) ?? 1
+            let nsString = tv.string as NSString
+            var found: NSRange? = nil
+            var current = 1
+            nsString.enumerateSubstrings(
+                in: NSRange(location: 0, length: nsString.length),
+                options: .byLines
+            ) { _, substringRange, _, stop in
+                if current == line {
+                    found = substringRange
+                    stop.pointee = true
+                }
+                current += 1
+            }
+            let lineRange = found ?? NSRange(location: 0, length: 0)
+            let colOffset = max(0, column - 1)
+            let target = min(lineRange.location + colOffset, lineRange.location + lineRange.length)
+            let range = NSRange(location: min(target, nsString.length), length: 0)
+            tv.scrollRangeToVisible(range)
+            tv.setSelectedRange(range)
+            tv.window?.makeFirstResponder(tv)
         }
 
         @objc private func boundsDidChange(_ note: Notification) {
