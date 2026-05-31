@@ -208,7 +208,7 @@ enum TMEngine {
                 continue
             }
             if let match = p.match {
-                let regex = try? NSRegularExpression(pattern: match, options: [])
+                let regex = try? NSRegularExpression(pattern: match, options: .anchorsMatchLines)
                 out.append(ResolvedPattern(
                     pattern: p,
                     matchRegex: regex,
@@ -218,7 +218,7 @@ enum TMEngine {
                     parentGrammar: grammar
                 ))
             } else if let begin = p.begin {
-                let regex = try? NSRegularExpression(pattern: begin, options: [])
+                let regex = try? NSRegularExpression(pattern: begin, options: .anchorsMatchLines)
                 let inner = resolvedPatterns(p.patterns ?? [], grammar: grammar)
                 out.append(ResolvedPattern(
                     pattern: p,
