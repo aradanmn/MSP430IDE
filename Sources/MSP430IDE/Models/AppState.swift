@@ -56,7 +56,7 @@ final class AppState: ObservableObject {
     /// Watches the workspace tree so external add/remove/rename of files
     /// is reflected in the file tree without reopening the project.
     private var fileWatcher: FileSystemWatcher?
-    private var pendingTreeRefresh: DispatchWorkItem?
+    private var refreshTask: Task<Void, Never>?
 
     let lsp: LSPClient?
     private var lspRootURL: URL?
@@ -157,7 +157,7 @@ final class AppState: ObservableObject {
     private func startWatching(_ root: URL) {
         fileWatcher?.stop()
         let watcher = FileSystemWatcher(path: root.path) { [weak self] in
-            DispatchQueue.main.async { self?.scheduleTreeRefresh() }
+            Task { @MainActor [weak self] in self?.scheduleTreeRefresh() }
         }
         watcher.start()
         fileWatcher = watcher
@@ -166,16 +166,19 @@ final class AppState: ObservableObject {
     private func stopWatching() {
         fileWatcher?.stop()
         fileWatcher = nil
-        pendingTreeRefresh?.cancel()
-        pendingTreeRefresh = nil
+        refreshTask?.cancel()
+        refreshTask = nil
     }
 
-    /// Debounced — FSEvents can deliver bursts.
+    /// Debounced — FSEvents can deliver bursts. Uses a Task instead of
+    /// DispatchWorkItem so cancellation is MainActor-safe on macOS 26+.
     private func scheduleTreeRefresh() {
-        pendingTreeRefresh?.cancel()
-        let work = DispatchWorkItem { [weak self] in self?.refreshFileTree() }
-        pendingTreeRefresh = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3, execute: work)
+        refreshTask?.cancel()
+        refreshTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: 300_000_000)
+            guard !Task.isCancelled else { return }
+            self?.refreshFileTree()
+        }
     }
 
     /// Re-scan the tree and reload sub-project source lists to reflect
@@ -727,7 +730,7 @@ final class AppState: ObservableObject {
         let line = diagnostic.line
         let column = diagnostic.column ?? 1
         let url = diagnostic.file
-        DispatchQueue.main.async {
+        Task { @MainActor in
             NotificationCenter.default.post(
                 name: .msp430EditorJumpToLine,
                 object: nil,

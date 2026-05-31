@@ -169,7 +169,7 @@ struct CodeEditorView: NSViewRepresentable {
         }
 
         func scheduleRecompute() {
-            DispatchQueue.main.async { [weak self] in
+            Task { @MainActor [weak self] in
                 self?.recompute()
             }
         }

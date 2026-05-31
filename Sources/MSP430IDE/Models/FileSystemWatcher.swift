@@ -20,11 +20,17 @@ final class FileSystemWatcher {
 
     func start() {
         guard stream == nil else { return }
+        // passRetained keeps self alive for the lifetime of the stream.
+        // The paired release in the context releases it when the stream is torn down.
+        let retained = Unmanaged.passRetained(self)
         var context = FSEventStreamContext(
             version: 0,
-            info: Unmanaged.passUnretained(self).toOpaque(),
+            info: retained.toOpaque(),
             retain: nil,
-            release: nil,
+            release: { ptr in
+                guard let ptr else { return }
+                Unmanaged<FileSystemWatcher>.fromOpaque(ptr).release()
+            },
             copyDescription: nil
         )
         let callback: FSEventStreamCallback = { _, info, _, _, _, _ in

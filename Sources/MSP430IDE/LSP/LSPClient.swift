@@ -145,11 +145,11 @@ final class LSPClient: ObservableObject {
         }
 
         transport.onMessage = { [weak self] obj in
-            DispatchQueue.main.async { self?.handle(obj) }
+            Task { @MainActor [weak self] in self?.handle(obj) }
         }
         transport.onError = { _ in /* clangd logs to stderr; ignore */ }
         transport.onExit = { [weak self] in
-            DispatchQueue.main.async {
+            Task { @MainActor [weak self] in
                 self?.isRunning = false
                 self?.ready = false
             }
