@@ -59,6 +59,14 @@ final class PanelManager: ObservableObject {
     private var groupWindows: [UUID: FloatingPanelWindowController] = [:]
     private var tearPreviewWindow: NSWindow?
 
+    /// Remembered content size of each panel's floating window, so re-popping
+    /// (and the tear preview) reuse the size you left it at.
+    private var lastFloatingSize: [PanelID: NSSize] = [:]
+
+    private func defaultSize(_ id: PanelID) -> NSSize {
+        id == .fileTree ? NSSize(width: 280, height: 480) : NSSize(width: 640, height: 320)
+    }
+
     // Drag-to-dock: track the floating window currently being moved by its
     // title bar, and act on release.
     private var draggedGroupID: UUID?
@@ -213,8 +221,12 @@ final class PanelManager: ObservableObject {
     // MARK: - Tear-off drag preview
 
     func beginTearPreview(_ id: PanelID) {
-        guard tearPreviewWindow == nil else { return }
-        let hosting = NSHostingController(rootView: TearPreviewCard(id: id))
+        guard tearPreviewWindow == nil, let appState else { return }
+        let size = lastFloatingSize[id] ?? defaultSize(id)
+        let content = TearLivePreview(id: id)
+            .environmentObject(appState)
+            .environmentObject(self)
+        let hosting = NSHostingController(rootView: AnyView(content))
         let window = NSWindow(contentViewController: hosting)
         window.styleMask = [.borderless]
         window.isOpaque = false
@@ -224,15 +236,16 @@ final class PanelManager: ObservableObject {
         window.ignoresMouseEvents = true
         window.isReleasedWhenClosed = false
         window.tabbingMode = .disallowed
-        window.setContentSize(NSSize(width: 220, height: 120))
-        window.alphaValue = 0.92
+        window.setContentSize(size)
+        window.alphaValue = 0.82
         tearPreviewWindow = window
         window.orderFront(nil)
         moveTearPreview(to: NSEvent.mouseLocation)
     }
 
     func moveTearPreview(to screenPoint: NSPoint) {
-        tearPreviewWindow?.setFrameTopLeftPoint(NSPoint(x: screenPoint.x - 60, y: screenPoint.y + 12))
+        // Cursor sits near the top of the preview, as if grabbing its title.
+        tearPreviewWindow?.setFrameTopLeftPoint(NSPoint(x: screenPoint.x - 40, y: screenPoint.y + 14))
     }
 
     /// Finish a tear drag. If dropped over another floating window, merge
@@ -326,7 +339,7 @@ final class PanelManager: ObservableObject {
         window.isReleasedWhenClosed = false
         window.tabbingMode = .disallowed
         window.backgroundColor = .textBackgroundColor
-        window.setContentSize(NSSize(width: 620, height: 380))
+        window.setContentSize(lastFloatingSize[group.active] ?? defaultSize(group.active))
         suppressMoveTracking = true
         if let p = screenPoint {
             window.setFrameTopLeftPoint(NSPoint(x: p.x - 60, y: p.y + 12))
@@ -340,6 +353,12 @@ final class PanelManager: ObservableObject {
     }
 
     fileprivate func handleWindowClosed(_ groupID: UUID) {
+        // Remember the size so re-popping reuses it.
+        if let window = groupWindows[groupID]?.window,
+           let group = floatingGroups.first(where: { $0.id == groupID }),
+           let size = window.contentView?.frame.size, !group.panels.isEmpty {
+            for panel in group.panels { lastFloatingSize[panel] = size }
+        }
         groupWindows[groupID] = nil
         floatingGroups.removeAll { $0.id == groupID }
         rebuildFloatingSet()
@@ -393,18 +412,33 @@ struct MainWindowAccessor: NSViewRepresentable {
     }
 }
 
-/// The ghost shown under the cursor while tearing a tab out.
-struct TearPreviewCard: View {
+/// Live preview shown under the cursor while tearing a panel out — the real
+/// panel content at the size the window will be, not just a placeholder.
+struct TearLivePreview: View {
     let id: PanelID
+
     var body: some View {
-        VStack(spacing: 8) {
-            Image(systemName: id.systemImage).font(.title2).foregroundStyle(.secondary)
-            Text(id.title).font(.caption.weight(.semibold))
+        VStack(spacing: 0) {
+            HStack(spacing: 6) {
+                Image(systemName: id.systemImage).font(.caption).foregroundStyle(.secondary)
+                Text(id.title).font(.caption.weight(.semibold))
+                Spacer()
+            }
+            .padding(.horizontal, 10)
+            .frame(height: 26)
+            .background(.bar)
+            Divider()
+            Group {
+                switch id {
+                case .console:  ConsoleView()
+                case .problems: ProblemsView()
+                case .fileTree: FileTreeView()
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(RoundedRectangle(cornerRadius: 10).fill(.ultraThinMaterial))
-        .overlay(RoundedRectangle(cornerRadius: 10)
-            .strokeBorder(Color.accentColor, style: StrokeStyle(lineWidth: 2, dash: [6])))
-        .padding(6)
+        .background(Color(nsColor: .textBackgroundColor))
+        .clipShape(RoundedRectangle(cornerRadius: 8))
+        .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(Color.accentColor, lineWidth: 2))
     }
 }

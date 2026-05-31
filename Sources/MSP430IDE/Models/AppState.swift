@@ -156,6 +156,42 @@ final class AppState: ObservableObject {
 
     private var editorWindows: [URL: EditorWindowController] = [:]
     private var editorTearPreview: NSWindow?
+    private var lastEditorSize: [URL: NSSize] = [:]
+    private static let defaultEditorWindowSize = NSSize(width: 700, height: 460)
+
+    /// The main app window, used to detect when a floating editor is dragged
+    /// back onto it (to dock). Set by MainView.
+    weak var mainWindow: NSWindow?
+    private var draggedEditorURL: URL?
+    private var suppressEditorMove = false
+    private var editorMouseUpMonitors: [Any] = []
+
+    func setMainWindow(_ window: NSWindow?) { mainWindow = window }
+
+    private func installEditorDragMonitorsIfNeeded() {
+        guard editorMouseUpMonitors.isEmpty else { return }
+        let onUp: () -> Void = { [weak self] in Task { @MainActor in self?.handleEditorDragRelease() } }
+        if let g = NSEvent.addGlobalMonitorForEvents(matching: .leftMouseUp, handler: { _ in onUp() }) {
+            editorMouseUpMonitors.append(g)
+        }
+        if let l = NSEvent.addLocalMonitorForEvents(matching: .leftMouseUp, handler: { ev in onUp(); return ev }) {
+            editorMouseUpMonitors.append(l)
+        }
+    }
+
+    func noteEditorWindowMoved(_ url: URL) {
+        guard !suppressEditorMove else { return }
+        draggedEditorURL = url
+    }
+
+    private func handleEditorDragRelease() {
+        guard let url = draggedEditorURL else { return }
+        draggedEditorURL = nil
+        guard let mw = mainWindow, mw.frame.contains(NSEvent.mouseLocation) else { return }
+        // Dropped onto the main window → dock the file back (closing the
+        // window re-adds its tab via editorWindowClosed).
+        editorWindows[url]?.window.close()
+    }
 
     /// Open `url` in its own editor window (sharing the same TextBuffer, so
     /// it's the same document). Removes it from the main tab bar while
@@ -175,12 +211,15 @@ final class AppState: ObservableObject {
         window.isReleasedWhenClosed = false
         window.tabbingMode = .disallowed
         window.backgroundColor = .textBackgroundColor
-        window.setContentSize(NSSize(width: 700, height: 460))
+        window.setContentSize(lastEditorSize[url] ?? Self.defaultEditorWindowSize)
+        suppressEditorMove = true
         if let p = screenPoint {
             window.setFrameTopLeftPoint(NSPoint(x: p.x - 80, y: p.y + 12))
         } else {
             window.center()
         }
+        suppressEditorMove = false
+        installEditorDragMonitorsIfNeeded()
         let controller = EditorWindowController(url: url, window: window, appState: self)
         editorWindows[url] = controller
 
@@ -193,6 +232,9 @@ final class AppState: ObservableObject {
     }
 
     func editorWindowClosed(_ url: URL) {
+        if let size = editorWindows[url]?.window.contentView?.frame.size {
+            lastEditorSize[url] = size
+        }
         editorWindows[url] = nil
         // Re-dock the tab (the buffer was never released).
         guard buffers[url] != nil else { return }
@@ -204,8 +246,8 @@ final class AppState: ObservableObject {
 
     // Tear preview for editor tabs (mirrors the panel tear preview).
     func beginEditorTearPreview(_ url: URL) {
-        guard editorTearPreview == nil else { return }
-        let hosting = NSHostingController(rootView: EditorTearCard(filename: url.lastPathComponent))
+        guard editorTearPreview == nil, let buffer = buffers[url] else { return }
+        let hosting = NSHostingController(rootView: EditorTearPreview(filename: url.lastPathComponent, buffer: buffer))
         let window = NSWindow(contentViewController: hosting)
         window.styleMask = [.borderless]
         window.isOpaque = false
@@ -215,15 +257,15 @@ final class AppState: ObservableObject {
         window.ignoresMouseEvents = true
         window.isReleasedWhenClosed = false
         window.tabbingMode = .disallowed
-        window.setContentSize(NSSize(width: 240, height: 90))
-        window.alphaValue = 0.92
+        window.setContentSize(lastEditorSize[url] ?? Self.defaultEditorWindowSize)
+        window.alphaValue = 0.82
         editorTearPreview = window
         window.orderFront(nil)
         moveEditorTearPreview(to: NSEvent.mouseLocation)
     }
 
     func moveEditorTearPreview(to screenPoint: NSPoint) {
-        editorTearPreview?.setFrameTopLeftPoint(NSPoint(x: screenPoint.x - 70, y: screenPoint.y + 12))
+        editorTearPreview?.setFrameTopLeftPoint(NSPoint(x: screenPoint.x - 40, y: screenPoint.y + 14))
     }
 
     func endEditorTear(commit: Bool, url: URL, at screenPoint: NSPoint) {

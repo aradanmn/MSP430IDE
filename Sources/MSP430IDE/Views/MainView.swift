@@ -11,14 +11,22 @@ struct MainView: View {
                 FileTreeView(showPopOutControl: true)
                     .navigationSplitViewColumnWidth(min: 180, ideal: 220, max: 360)
             } detail: {
-                ResizableVerticalSplit(
-                    defaultFraction: 0.25,
-                    minTopHeight: 150,
-                    minBottomHeight: 60
-                ) {
-                    EditorPane()
-                } bottom: {
-                    BottomPanel()
+                Group {
+                    if panels.bottomTabs.isEmpty {
+                        // All bottom panels are floating — give the space to
+                        // the editor instead of showing an empty dock.
+                        EditorPane()
+                    } else {
+                        ResizableVerticalSplit(
+                            defaultFraction: 0.25,
+                            minTopHeight: 150,
+                            minBottomHeight: 60
+                        ) {
+                            EditorPane()
+                        } bottom: {
+                            BottomPanel()
+                        }
+                    }
                 }
                 .frame(minWidth: 400)
             }
@@ -27,7 +35,10 @@ struct MainView: View {
 
             StatusBar()
         }
-        .background(MainWindowAccessor { panels.setMainWindow($0) })
+        .background(MainWindowAccessor {
+            panels.setMainWindow($0)
+            appState.setMainWindow($0)
+        })
         // Collapse the sidebar while the file tree is floating so it isn't
         // shown in two places at once.
         .onChange(of: panels.floatingPanels) { floating in

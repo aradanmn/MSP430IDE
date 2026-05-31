@@ -19,27 +19,39 @@ final class EditorWindowController: NSObject, NSWindowDelegate {
         // NSWindowDelegate is MainActor-isolated, so this is safe.
         appState?.editorWindowClosed(url)
     }
+
+    func windowDidMove(_ notification: Notification) {
+        appState?.noteEditorWindowMoved(url)
+    }
 }
 
-/// Ghost shown under the cursor while tearing an editor tab into a window.
-struct EditorTearCard: View {
+/// Live preview shown under the cursor while tearing an editor tab into a
+/// window — a read-only rendering of the file content at the window's size.
+struct EditorTearPreview: View {
     let filename: String
+    @ObservedObject var buffer: TextBuffer
 
     var body: some View {
-        HStack(spacing: 8) {
-            Image(systemName: "doc.text")
-                .font(.title3)
-                .foregroundStyle(.secondary)
-            Text(filename)
-                .font(.system(.caption, design: .monospaced))
-                .lineLimit(1)
-                .truncationMode(.middle)
+        VStack(spacing: 0) {
+            HStack(spacing: 6) {
+                Image(systemName: "doc.text").font(.caption).foregroundStyle(.secondary)
+                Text(filename).font(.system(.caption, design: .monospaced))
+                Spacer()
+            }
+            .padding(.horizontal, 10)
+            .frame(height: 26)
+            .background(.bar)
+            Divider()
+            ScrollView {
+                Text(String(buffer.text.prefix(6000)))
+                    .font(.system(.caption, design: .monospaced))
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(8)
+            }
+            .disabled(true)
         }
-        .padding(.horizontal, 14)
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(RoundedRectangle(cornerRadius: 10).fill(.ultraThinMaterial))
-        .overlay(RoundedRectangle(cornerRadius: 10)
-            .strokeBorder(Color.accentColor, style: StrokeStyle(lineWidth: 2, dash: [6])))
-        .padding(6)
+        .background(Color(nsColor: .textBackgroundColor))
+        .clipShape(RoundedRectangle(cornerRadius: 8))
+        .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(Color.accentColor, lineWidth: 2))
     }
 }
