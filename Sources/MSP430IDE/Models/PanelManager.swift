@@ -92,9 +92,11 @@ final class PanelManager: ObservableObject {
     fileprivate func noteWindowMoved(_ groupID: UUID) {
         guard !suppressMoveTracking else { return }
         draggedGroupID = groupID
+        updateDockHighlight()
     }
 
     private func handleWindowDragRelease() {
+        hideDockHighlight()
         guard let movedID = draggedGroupID else { return }
         draggedGroupID = nil
         let point = NSEvent.mouseLocation
@@ -108,6 +110,52 @@ final class PanelManager: ObservableObject {
         if let mw = mainWindow, mw.frame.contains(point) {
             dockGroup(movedID)
         }
+    }
+
+    // MARK: - Snap-to-edge dock highlight
+
+    private var dockHighlight: NSWindow?
+
+    /// While a floating window is dragged over the main window, highlight the
+    /// dock zone it would snap into (left for the file tree, bottom for
+    /// Console/Issues).
+    private func updateDockHighlight() {
+        guard let movedID = draggedGroupID,
+              let group = floatingGroups.first(where: { $0.id == movedID }),
+              let mw = mainWindow,
+              mw.frame.contains(NSEvent.mouseLocation) else {
+            hideDockHighlight()
+            return
+        }
+        showDockHighlight(dockZoneRect(for: group, in: mw.frame))
+    }
+
+    private func dockZoneRect(for group: FloatingGroup, in frame: NSRect) -> NSRect {
+        if group.panels.contains(.fileTree) {
+            return NSRect(x: frame.minX, y: frame.minY, width: 240, height: frame.height)
+        }
+        let h = frame.height * 0.3   // bottom strip for Console/Issues
+        return NSRect(x: frame.minX, y: frame.minY, width: frame.width, height: h)
+    }
+
+    private func showDockHighlight(_ rect: NSRect) {
+        let window = dockHighlight ?? {
+            let w = NSWindow(contentRect: .zero, styleMask: [.borderless], backing: .buffered, defer: true)
+            w.isOpaque = false
+            w.backgroundColor = NSColor.controlAccentColor.withAlphaComponent(0.22)
+            w.ignoresMouseEvents = true
+            w.level = .floating
+            w.hasShadow = false
+            w.isReleasedWhenClosed = false
+            dockHighlight = w
+            return w
+        }()
+        window.setFrame(rect, display: true)
+        window.orderFront(nil)
+    }
+
+    private func hideDockHighlight() {
+        dockHighlight?.orderOut(nil)
     }
 
     private func mergeGroup(_ sourceID: UUID, into targetID: UUID) {

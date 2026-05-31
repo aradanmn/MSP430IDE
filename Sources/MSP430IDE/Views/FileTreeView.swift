@@ -3,23 +3,57 @@ import AppKit
 
 struct FileTreeView: View {
     @EnvironmentObject var appState: AppState
+    @EnvironmentObject var panels: PanelManager
+    /// Show the pop-out control (only in the docked sidebar, not when this
+    /// view is already inside a floating window).
+    var showPopOutControl: Bool = false
 
     var body: some View {
-        Group {
-            if let root = appState.workspaceRoot {
-                let nodes = FileNode.buildTree(from: appState.displayFiles, root: root)
-                List(selection: selectionBinding) {
-                    OutlineGroup(nodes, children: \.children) { node in
-                        FileTreeRow(node: node).tag(node.id)
-                    }
-                }
-                .listStyle(.sidebar)
-            } else {
-                Text("No project open")
-                    .foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .padding()
+        VStack(spacing: 0) {
+            if showPopOutControl, !panels.isFloating(.fileTree) {
+                header
             }
+            treeContent
+        }
+    }
+
+    private var header: some View {
+        HStack(spacing: 6) {
+            Text(appState.workspaceRoot?.lastPathComponent ?? "Files")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .truncationMode(.middle)
+            Spacer(minLength: 4)
+            Button {
+                panels.popOut(.fileTree)
+            } label: {
+                Image(systemName: "rectangle.portrait.and.arrow.right")
+            }
+            .buttonStyle(.borderless)
+            .help("Open the file tree in a new window")
+        }
+        .padding(.horizontal, 10)
+        .frame(height: 26)
+        .background(.bar)
+        .overlay(alignment: .bottom) { Divider() }
+    }
+
+    @ViewBuilder
+    private var treeContent: some View {
+        if let root = appState.workspaceRoot {
+            let nodes = FileNode.buildTree(from: appState.displayFiles, root: root)
+            List(selection: selectionBinding) {
+                OutlineGroup(nodes, children: \.children) { node in
+                    FileTreeRow(node: node).tag(node.id)
+                }
+            }
+            .listStyle(.sidebar)
+        } else {
+            Text("No project open")
+                .foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .padding()
         }
     }
 

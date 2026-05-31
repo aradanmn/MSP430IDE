@@ -152,6 +152,85 @@ final class AppState: ObservableObject {
         refreshDisplayedDiagnostics()
     }
 
+    // MARK: - Editor pop-out windows
+
+    private var editorWindows: [URL: EditorWindowController] = [:]
+    private var editorTearPreview: NSWindow?
+
+    /// Open `url` in its own editor window (sharing the same TextBuffer, so
+    /// it's the same document). Removes it from the main tab bar while
+    /// floating; closing the window re-docks it.
+    func popOutEditor(_ url: URL, at screenPoint: NSPoint? = nil) {
+        guard buffers[url] != nil else { return }
+        if let existing = editorWindows[url] {
+            existing.window.makeKeyAndOrderFront(nil)
+            return
+        }
+        let content = EditorPaneContent(url: url, buffer: buffers[url]!)
+            .environmentObject(self)
+        let hosting = NSHostingController(rootView: AnyView(content))
+        let window = NSWindow(contentViewController: hosting)
+        window.title = url.lastPathComponent
+        window.styleMask = [.titled, .closable, .resizable, .miniaturizable, .fullSizeContentView]
+        window.isReleasedWhenClosed = false
+        window.tabbingMode = .disallowed
+        window.setContentSize(NSSize(width: 700, height: 460))
+        if let p = screenPoint {
+            window.setFrameTopLeftPoint(NSPoint(x: p.x - 80, y: p.y + 12))
+        } else {
+            window.center()
+        }
+        let controller = EditorWindowController(url: url, window: window, appState: self)
+        editorWindows[url] = controller
+
+        // Remove from the main tab bar (still open, just elsewhere).
+        editor.detach(url)
+        selectedFile = editor.activeTab
+        if let active = selectedFile { project = enclosingProject(for: active) ?? project }
+
+        window.makeKeyAndOrderFront(nil)
+    }
+
+    func editorWindowClosed(_ url: URL) {
+        editorWindows[url] = nil
+        // Re-dock the tab (the buffer was never released).
+        guard buffers[url] != nil else { return }
+        editor.open(url)
+        selectedFile = url
+        if let proj = enclosingProject(for: url) { project = proj }
+        persistWorkspaceState()
+    }
+
+    // Tear preview for editor tabs (mirrors the panel tear preview).
+    func beginEditorTearPreview(_ url: URL) {
+        guard editorTearPreview == nil else { return }
+        let hosting = NSHostingController(rootView: EditorTearCard(filename: url.lastPathComponent))
+        let window = NSWindow(contentViewController: hosting)
+        window.styleMask = [.borderless]
+        window.isOpaque = false
+        window.backgroundColor = .clear
+        window.hasShadow = true
+        window.level = .floating
+        window.ignoresMouseEvents = true
+        window.isReleasedWhenClosed = false
+        window.tabbingMode = .disallowed
+        window.setContentSize(NSSize(width: 240, height: 90))
+        window.alphaValue = 0.92
+        editorTearPreview = window
+        window.orderFront(nil)
+        moveEditorTearPreview(to: NSEvent.mouseLocation)
+    }
+
+    func moveEditorTearPreview(to screenPoint: NSPoint) {
+        editorTearPreview?.setFrameTopLeftPoint(NSPoint(x: screenPoint.x - 70, y: screenPoint.y + 12))
+    }
+
+    func endEditorTear(commit: Bool, url: URL, at screenPoint: NSPoint) {
+        editorTearPreview?.orderOut(nil)
+        editorTearPreview = nil
+        if commit { popOutEditor(url, at: screenPoint) }
+    }
+
     // MARK: - File tree watching
 
     private func startWatching(_ root: URL) {

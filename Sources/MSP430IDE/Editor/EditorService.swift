@@ -32,6 +32,21 @@ final class EditorService: ObservableObject {
         }
     }
 
+    /// Remove a tab without treating it as "closed" (it isn't added to the
+    /// recently-closed stack). Used when a file is torn out into its own
+    /// editor window — it's still open, just elsewhere.
+    func detach(_ url: URL) {
+        guard let idx = openTabs.firstIndex(of: url) else { return }
+        openTabs.remove(at: idx)
+        if activeTab == url {
+            if openTabs.indices.contains(idx) {
+                activeTab = openTabs[idx]
+            } else {
+                activeTab = openTabs.last
+            }
+        }
+    }
+
     func closeAll() {
         recentlyClosed.append(contentsOf: openTabs)
         if recentlyClosed.count > recentlyClosedLimit {

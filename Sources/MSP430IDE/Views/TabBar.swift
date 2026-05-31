@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 
 struct TabBar: View {
     @EnvironmentObject var appState: AppState
@@ -23,6 +24,7 @@ private struct TabItem: View {
     let url: URL
     @EnvironmentObject var appState: AppState
     @State private var hovering = false
+    @State private var torn = false
 
     var body: some View {
         let isActive = appState.editor.activeTab == url
@@ -81,7 +83,27 @@ private struct TabItem: View {
             appState.selectFile(url)
         }
         .onHover { hovering = $0 }
+        // Tear the tab out into its own editor window (live preview, placed
+        // on release). Plain clicks still select.
+        .simultaneousGesture(
+            DragGesture(minimumDistance: 16, coordinateSpace: .global)
+                .onChanged { value in
+                    if !torn && (value.translation.height > 22 || abs(value.translation.width) > 90) {
+                        torn = true
+                        appState.beginEditorTearPreview(url)
+                    }
+                    if torn { appState.moveEditorTearPreview(to: NSEvent.mouseLocation) }
+                }
+                .onEnded { _ in
+                    if torn {
+                        appState.endEditorTear(commit: true, url: url, at: NSEvent.mouseLocation)
+                        torn = false
+                    }
+                }
+        )
         .contextMenu {
+            Button("Open in New Window") { appState.popOutEditor(url) }
+            Divider()
             Button("Close") { appState.closeTab(url) }
             Button("Close Others") {
                 for other in appState.editor.openTabs where other != url {

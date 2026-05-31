@@ -3,11 +3,12 @@ import SwiftUI
 struct MainView: View {
     @EnvironmentObject var appState: AppState
     @EnvironmentObject var panels: PanelManager
+    @State private var columnVisibility: NavigationSplitViewVisibility = .all
 
     var body: some View {
         VStack(spacing: 0) {
-            NavigationSplitView {
-                FileTreeView()
+            NavigationSplitView(columnVisibility: $columnVisibility) {
+                FileTreeView(showPopOutControl: true)
                     .navigationSplitViewColumnWidth(min: 180, ideal: 220, max: 360)
             } detail: {
                 ResizableVerticalSplit(
@@ -27,6 +28,11 @@ struct MainView: View {
             StatusBar()
         }
         .background(MainWindowAccessor { panels.setMainWindow($0) })
+        // Collapse the sidebar while the file tree is floating so it isn't
+        // shown in two places at once.
+        .onChange(of: panels.floatingPanels) { floating in
+            columnVisibility = floating.contains(.fileTree) ? .detailOnly : .all
+        }
     }
 }
 
@@ -51,7 +57,7 @@ struct EditorPane: View {
     }
 }
 
-private struct EditorPaneContent: View {
+struct EditorPaneContent: View {
     let url: URL
     @ObservedObject var buffer: TextBuffer
     @State private var gutter = GutterState()
