@@ -174,6 +174,7 @@ final class AppState: ObservableObject {
         window.styleMask = [.titled, .closable, .resizable, .miniaturizable, .fullSizeContentView]
         window.isReleasedWhenClosed = false
         window.tabbingMode = .disallowed
+        window.backgroundColor = .textBackgroundColor
         window.setContentSize(NSSize(width: 700, height: 460))
         if let p = screenPoint {
             window.setFrameTopLeftPoint(NSPoint(x: p.x - 80, y: p.y + 12))

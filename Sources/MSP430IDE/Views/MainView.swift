@@ -113,13 +113,7 @@ struct FileHeader: View {
             }
             Spacer()
             if isMarkdown, let previewMode {
-                Picker("", selection: previewMode) {
-                    Text("Preview").tag(true)
-                    Text("Source").tag(false)
-                }
-                .pickerStyle(.segmented)
-                .labelsHidden()
-                .frame(width: 150)
+                PreviewSourceToggle(preview: previewMode)
             } else {
                 Text("\(buffer.text.count) chars")
                     .font(.caption)
@@ -134,6 +128,35 @@ struct FileHeader: View {
         .overlay(alignment: .bottom) {
             Divider()
         }
+    }
+}
+
+/// Plain two-button Preview/Source switch. Replaces a segmented `Picker`,
+/// whose `SystemSegmentedControl` crashes during layout on macOS 26.
+private struct PreviewSourceToggle: View {
+    @Binding var preview: Bool
+
+    var body: some View {
+        HStack(spacing: 2) {
+            segment("Preview", on: preview) { preview = true }
+            segment("Source", on: !preview) { preview = false }
+        }
+        .padding(2)
+        .background(RoundedRectangle(cornerRadius: 6).fill(Color(nsColor: .windowBackgroundColor)))
+    }
+
+    private func segment(_ title: String, on: Bool, _ action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text(title)
+                .font(.caption)
+                .padding(.horizontal, 9)
+                .padding(.vertical, 2)
+                .background(on ? Color.accentColor.opacity(0.85) : Color.clear)
+                .foregroundStyle(on ? Color.white : Color.secondary)
+                .clipShape(RoundedRectangle(cornerRadius: 4))
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
     }
 }
 

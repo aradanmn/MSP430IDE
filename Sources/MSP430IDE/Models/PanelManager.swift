@@ -325,6 +325,7 @@ final class PanelManager: ObservableObject {
         window.styleMask = [.titled, .closable, .resizable, .miniaturizable, .fullSizeContentView]
         window.isReleasedWhenClosed = false
         window.tabbingMode = .disallowed
+        window.backgroundColor = .textBackgroundColor
         window.setContentSize(NSSize(width: 620, height: 380))
         suppressMoveTracking = true
         if let p = screenPoint {
