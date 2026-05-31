@@ -37,8 +37,11 @@ struct EditorPane: View {
                 TabBar()
             }
             if let url = appState.selectedFile, let buffer = appState.buffers[url] {
+                // Intentionally NOT `.id(url)`: keeping one persistent pane
+                // (and its NSTextView) across tab switches preserves scroll /
+                // cursor state and avoids recreating the view — which is what
+                // caused the dangling-reference crashes on macOS 26.
                 EditorPaneContent(url: url, buffer: buffer)
-                    .id(url)
             } else {
                 WelcomeView()
             }
@@ -50,17 +53,26 @@ private struct EditorPaneContent: View {
     let url: URL
     @ObservedObject var buffer: TextBuffer
     @State private var gutter = GutterState()
-    @State private var markdownPreview = true
+    // Preview/Source choice is per-file (the pane is now shared across tabs,
+    // so a single Bool would bleed between files).
+    @State private var previewByURL: [URL: Bool] = [:]
 
     private var isMarkdown: Bool {
         ["md", "markdown", "mdown"].contains(url.pathExtension.lowercased())
     }
 
+    private var previewBinding: Binding<Bool> {
+        Binding(
+            get: { previewByURL[url] ?? true },
+            set: { previewByURL[url] = $0 }
+        )
+    }
+
     var body: some View {
         VStack(spacing: 0) {
-            FileHeader(url: url, buffer: buffer, isMarkdown: isMarkdown, previewMode: $markdownPreview)
-            if isMarkdown && markdownPreview {
-                MarkdownView(text: buffer.text)
+            FileHeader(url: url, buffer: buffer, isMarkdown: isMarkdown, previewMode: previewBinding)
+            if isMarkdown && (previewByURL[url] ?? true) {
+                MarkdownView(buffer: buffer)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 HStack(spacing: 0) {

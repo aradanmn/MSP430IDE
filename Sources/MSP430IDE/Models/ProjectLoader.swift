@@ -80,12 +80,9 @@ enum ProjectLoader {
                 }
             }
         }
-        if configs["Debug"] == nil {
-            configs["Debug"] = BuildFlags(cflags: ["-O0"], defines: ["DEBUG=1"])
-        }
-        if configs["Release"] == nil {
-            configs["Release"] = BuildFlags(cflags: ["-Os"], defines: ["NDEBUG=1"])
-        }
+        // Debug/Release are auto-injected only for C projects (their flags
+        // are C-compiler oriented). Decided after scanSources, below.
+        let hasExplicitConfigs = !configs.isEmpty
 
         let extTable = raw["external"]?.tableValue ?? [:]
         let external = ExternalCommands(
@@ -112,6 +109,19 @@ enum ProjectLoader {
         // is "implicit" — we'll allow browsing but block building.
         model.isImplicit = !hasToml && (try? Data(contentsOf: url.appendingPathComponent(legacyConfigFileName))) == nil
         scanSources(into: &model)
+
+        // Inject default configs only if the project didn't define its own.
+        // C projects get the conventional Debug/Release pair; assembly-only
+        // projects get a single neutral "Default" (Debug/Release optimization
+        // levels don't apply to the assembler).
+        if !hasExplicitConfigs {
+            if model.sourceFiles.isEmpty {
+                model.configs["Default"] = BuildFlags()
+            } else {
+                model.configs["Debug"]   = BuildFlags(cflags: ["-O0"], defines: ["DEBUG=1"])
+                model.configs["Release"] = BuildFlags(cflags: ["-Os"], defines: ["NDEBUG=1"])
+            }
+        }
         return model
     }
 

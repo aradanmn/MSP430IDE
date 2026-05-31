@@ -45,6 +45,11 @@ struct MSP430IDEApp: App {
                 }
                 .keyboardShortcut("n", modifiers: [.command, .shift])
 
+                Button("New Assembly Project…") {
+                    appState.createAssemblyProject()
+                }
+                .keyboardShortcut("n", modifiers: [.command, .shift, .option])
+
                 Button("Open Project Folder…") {
                     appState.promptOpenProject()
                 }
@@ -123,6 +128,24 @@ struct MSP430IDEApp: App {
                 Button("Clean Build Folder") {
                     appState.cleanBuild()
                 }
+
+                Divider()
+
+                Menu("Build Mode") {
+                    Button {
+                        appState.setBuildMode(.native)
+                    } label: {
+                        Label("Native (compile directly)",
+                              systemImage: appState.project?.mode == .native ? "checkmark" : "")
+                    }
+                    Button {
+                        appState.setBuildMode(.external)
+                    } label: {
+                        Label("External (use Makefile)",
+                              systemImage: appState.project?.mode == .external ? "checkmark" : "")
+                    }
+                }
+                .disabled(appState.project == nil)
             }
         }
     }

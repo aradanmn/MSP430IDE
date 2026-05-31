@@ -59,4 +59,59 @@ enum BlinkTemplate {
         try gitignore.write(to: url.appendingPathComponent(".gitignore"), atomically: true, encoding: .utf8)
         try clangdConfig.write(to: url.appendingPathComponent(".clangd"), atomically: true, encoding: .utf8)
     }
+
+    // MARK: - Assembly template
+
+    static let mainS = """
+    ; Bare-metal blink for the MSP430G2553 LaunchPad — red LED on P1.0.
+    ; Assembled with the C preprocessor, so <msp430.h> register names work.
+    #include <msp430.h>
+
+            .text
+            .global _start
+    _start:
+            mov.w   #(WDTPW|WDTHOLD), &WDTCTL   ; stop the watchdog
+            mov.w   #0x0400, SP                 ; init stack pointer (top of RAM)
+            bis.b   #BIT0, &P1DIR              ; P1.0 as output
+
+    loop:
+            xor.b   #BIT0, &P1OUT             ; toggle the LED
+            mov.w   #0x000F, R12              ; ~1 Hz software delay
+    outer:
+            mov.w   #0xFFFF, R13
+    inner:
+            dec.w   R13
+            jnz     inner
+            dec.w   R12
+            jnz     outer
+            jmp     loop
+
+            ; Reset vector: 0xFFFE = .vectors (forced to 0xFFE0) + offset 0x1E.
+            .section .vectors, "a"
+            .org 0x1E
+            .word _start
+    """
+
+    static let asmToml = """
+    [project]
+    mcu  = "msp430g2553"
+    mode = "native"
+
+    [flash]
+    driver = "tilib"
+    env    = { DYLD_LIBRARY_PATH = "~/.local/lib" }
+
+    # Assembly sources are compiled with these flags. The defaults below are
+    # also what the IDE uses if you omit them:
+    [defaults]
+    asmflags = ["-x", "assembler-with-cpp", "-nostdlib"]
+    """
+
+    static func createAssembly(at url: URL) throws {
+        let fm = FileManager.default
+        try fm.createDirectory(at: url, withIntermediateDirectories: true)
+        try mainS.write(to: url.appendingPathComponent("main.s"), atomically: true, encoding: .utf8)
+        try asmToml.write(to: url.appendingPathComponent("msp430.toml"), atomically: true, encoding: .utf8)
+        try gitignore.write(to: url.appendingPathComponent(".gitignore"), atomically: true, encoding: .utf8)
+    }
 }

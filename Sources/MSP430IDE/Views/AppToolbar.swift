@@ -5,7 +5,10 @@ struct AppToolbar: ToolbarContent {
 
     var body: some ToolbarContent {
         ToolbarItem(placement: .principal) {
-            if let proj = appState.project {
+            // Only native projects have selectable build configs. External
+            // projects defer everything to the Makefile, so there's nothing
+            // to pick — hide the control entirely.
+            if let proj = appState.project, proj.mode == .native {
                 Menu {
                     ForEach(proj.configNames, id: \.self) { name in
                         Button {
@@ -23,13 +26,10 @@ struct AppToolbar: ToolbarContent {
                 } label: {
                     HStack(spacing: 4) {
                         Image(systemName: "slider.horizontal.3")
-                        Text(proj.mode == .external ? "external" : appState.activeConfig)
+                        Text(appState.activeConfig)
                     }
                 }
-                .disabled(proj.mode == .external)
-                .help(proj.mode == .external
-                      ? "External-mode projects defer config to the Makefile"
-                      : "Active build configuration")
+                .help("Active build configuration")
                 .fixedSize()
             }
         }

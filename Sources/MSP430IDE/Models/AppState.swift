@@ -236,6 +236,55 @@ final class AppState: ObservableObject {
         }
     }
 
+    func createAssemblyProject() {
+        let panel = NSSavePanel()
+        panel.nameFieldStringValue = "BlinkAsmG2553"
+        panel.message = "Choose a location for the new assembly project folder"
+        panel.canCreateDirectories = true
+        if panel.runModal() == .OK, let url = panel.url {
+            do {
+                try BlinkTemplate.createAssembly(at: url)
+                openProject(at: url)
+                appendConsole("✓ Created assembly project at \(url.path)\n")
+            } catch {
+                appendConsole("Failed to create project: \(error.localizedDescription)\n")
+            }
+        }
+    }
+
+    /// Switches the active project between native and external build modes by
+    /// rewriting its `msp430.toml` `mode` field, then reloading the model.
+    func setBuildMode(_ mode: BuildMode) {
+        guard let proj = project, proj.mode != mode else { return }
+        let tomlURL = proj.configURL
+        guard var text = try? String(contentsOf: tomlURL, encoding: .utf8) else {
+            appendConsole("✗ Couldn't read \(tomlURL.lastPathComponent) to change build mode.\n")
+            return
+        }
+        let newLine = "mode = \"\(mode.rawValue)\""
+        if let range = text.range(of: #"(?m)^[ \t]*mode[ \t]*=[ \t]*"[^"]*""#, options: .regularExpression) {
+            text.replaceSubrange(range, with: newLine)
+        } else if let projRange = text.range(of: #"(?m)^\[project\][ \t]*$"#, options: .regularExpression) {
+            // Insert right after the [project] header.
+            text.insert(contentsOf: "\n" + newLine, at: projRange.upperBound)
+        } else {
+            text = "[project]\n\(newLine)\n\n" + text
+        }
+        do {
+            try text.write(to: tomlURL, atomically: true, encoding: .utf8)
+        } catch {
+            appendConsole("✗ Couldn't write build mode: \(error.localizedDescription)\n")
+            return
+        }
+        // Reload the affected sub-project so the new mode takes effect now.
+        if let reloaded = try? ProjectLoader.load(from: proj.rootURL) {
+            subprojects[proj.rootURL] = reloaded
+            project = reloaded
+            ensureLSPStarted()
+        }
+        statusMessage = "Build mode: \(mode.rawValue)"
+    }
+
     func openProject(at url: URL) {
         let canonical = URL(fileURLWithPath: (url.path as NSString).resolvingSymlinksInPath)
         let fm = FileManager.default

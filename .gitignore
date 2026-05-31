@@ -6,3 +6,6 @@ MSP430IDE.app/
 xcuserdata/
 .DS_Store
 *.dSYM/
+
+# IDE workspace state for this repo (when opened in MSP430IDE itself)
+.msp430ide/

@@ -59,13 +59,59 @@ struct CodeEditorView: NSViewRepresentable {
         }
 
         context.coordinator.attach(textView: textView, scrollView: scrollView)
+
+        // Restore saved cursor + scroll position. Deferred so layout finishes
+        // before we attempt to scroll to a specific origin.
+        let savedSel = buffer.savedSelection
+        let savedOrigin = buffer.savedScrollOrigin
+        Task { @MainActor [weak textView, weak scrollView] in
+            guard let tv = textView, let sv = scrollView else { return }
+            let len = (tv.string as NSString).length
+            let loc = min(savedSel.location, len)
+            tv.setSelectedRange(NSRange(location: loc, length: 0))
+            sv.contentView.scroll(to: savedOrigin)
+            sv.reflectScrolledClipView(sv.contentView)
+        }
+
         return scrollView
     }
 
     func updateNSView(_ scrollView: NSScrollView, context: Context) {
-        context.coordinator.buffer = buffer
-        context.coordinator.gutter = gutter
+        let coord = context.coordinator
+        coord.gutter = gutter
         guard let tv = scrollView.documentView as? NSTextView else { return }
+
+        // Tab switch: the same persistent text view is being pointed at a
+        // different buffer. Save the outgoing buffer's scroll + cursor, swap
+        // in the new content, then restore the new buffer's position. No view
+        // is recreated, so nothing dangles and state is preserved.
+        if coord.buffer.url != buffer.url {
+            coord.buffer.savedSelection = tv.selectedRange()
+            coord.buffer.savedScrollOrigin = scrollView.contentView.bounds.origin
+
+            coord.buffer = buffer
+            tv.string = buffer.text
+            if let storage = tv.textStorage {
+                HighlighterRegistry.highlighter(for: buffer.url).highlight(storage: storage)
+            }
+            // Undo history doesn't carry across files (ranges wouldn't match).
+            coord.editorUndoManager.removeAllActions()
+
+            let sel = buffer.savedSelection
+            let origin = buffer.savedScrollOrigin
+            let len = (tv.string as NSString).length
+            tv.setSelectedRange(NSRange(location: min(sel.location, len), length: 0))
+            Task { @MainActor [weak scrollView, weak tv] in
+                guard let sv = scrollView, tv != nil else { return }
+                sv.contentView.scroll(to: origin)
+                sv.reflectScrolledClipView(sv.contentView)
+                coord.scheduleRecompute()
+            }
+            return
+        }
+
+        coord.buffer = buffer
+        // Same buffer, but text changed underneath us (e.g. external reload).
         if tv.string != buffer.text {
             let prev = tv.selectedRange()
             tv.string = buffer.text
@@ -84,6 +130,12 @@ struct CodeEditorView: NSViewRepresentable {
         weak var textView: NSTextView?
         weak var scrollView: NSScrollView?
 
+        /// A dedicated undo manager per editor. Without this, undo actions
+        /// register against the window's shared manager and outlive the
+        /// NSTextView (which we recreate on every tab switch via `.id`),
+        /// so a later ⌘Z invokes a text operation on a freed view → crash.
+        let editorUndoManager = UndoManager()
+
         init(buffer: TextBuffer, gutter: GutterState) {
             self.buffer = buffer
             self.gutter = gutter
@@ -91,6 +143,11 @@ struct CodeEditorView: NSViewRepresentable {
 
         deinit {
             NotificationCenter.default.removeObserver(self)
+            editorUndoManager.removeAllActions()
+        }
+
+        func undoManager(for view: NSTextView) -> UndoManager? {
+            editorUndoManager
         }
 
         func attach(textView: NSTextView, scrollView: NSScrollView) {
@@ -116,6 +173,12 @@ struct CodeEditorView: NSViewRepresentable {
                 selector: #selector(jumpToLine(_:)),
                 name: .msp430EditorJumpToLine,
                 object: nil
+            )
+            NotificationCenter.default.addObserver(
+                self,
+                selector: #selector(selectionDidChange(_:)),
+                name: NSTextView.didChangeSelectionNotification,
+                object: textView
             )
 
             scheduleRecompute()
@@ -150,7 +213,16 @@ struct CodeEditorView: NSViewRepresentable {
             tv.window?.makeFirstResponder(tv)
         }
 
+        @objc private func selectionDidChange(_ note: Notification) {
+            guard let tv = textView else { return }
+            buffer.savedSelection = tv.selectedRange()
+        }
+
         @objc private func boundsDidChange(_ note: Notification) {
+            // Save scroll position so it's restored when switching back to this tab.
+            if let sv = scrollView {
+                buffer.savedScrollOrigin = sv.contentView.bounds.origin
+            }
             scheduleRecompute()
         }
 

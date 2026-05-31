@@ -155,6 +155,10 @@ final class TextBuffer: ObservableObject, Identifiable {
     @Published var text: String
     @Published var isDirty: Bool = false
 
+    /// Saved scroll + cursor state so switching tabs restores position.
+    var savedScrollOrigin: CGPoint = .zero
+    var savedSelection: NSRange = NSRange(location: 0, length: 0)
+
     init(url: URL, text: String) {
         self.url = url
         self.text = text
