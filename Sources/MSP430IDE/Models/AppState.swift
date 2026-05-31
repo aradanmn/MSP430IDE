@@ -229,10 +229,26 @@ final class AppState: ObservableObject {
             do {
                 try BlinkTemplate.create(at: url)
                 openProject(at: url)
-                appendConsole("✓ Created Blink project at \(url.path)\n")
+                appendConsole("✓ Created C project at \(url.path)\n")
             } catch {
                 appendConsole("Failed to create project: \(error.localizedDescription)\n")
             }
+        }
+    }
+
+    /// Prompts for the project language, then scaffolds the matching blink
+    /// template.
+    func createProject() {
+        let alert = NSAlert()
+        alert.messageText = "New MSP430 Project"
+        alert.informativeText = "Choose the language for your new blink project."
+        alert.addButton(withTitle: "C")          // default (Return)
+        alert.addButton(withTitle: "Assembly")
+        alert.addButton(withTitle: "Cancel")
+        switch alert.runModal() {
+        case .alertFirstButtonReturn:  createBlinkProject()
+        case .alertSecondButtonReturn: createAssemblyProject()
+        default: break
         }
     }
 

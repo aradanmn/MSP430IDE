@@ -2,6 +2,7 @@ import SwiftUI
 
 struct MainView: View {
     @EnvironmentObject var appState: AppState
+    @EnvironmentObject var panels: PanelManager
 
     var body: some View {
         VStack(spacing: 0) {
@@ -25,6 +26,7 @@ struct MainView: View {
 
             StatusBar()
         }
+        .background(MainWindowAccessor { panels.setMainWindow($0) })
     }
 }
 
@@ -149,8 +151,8 @@ struct WelcomeView: View {
                     }
                     .controlSize(.large)
 
-                    Button { appState.createBlinkProject() } label: {
-                        Label("New Blink Project…", systemImage: "sparkles")
+                    Button { appState.createProject() } label: {
+                        Label("New Project…", systemImage: "sparkles")
                             .frame(minWidth: 180)
                     }
                     .controlSize(.large)
@@ -163,8 +165,8 @@ struct WelcomeView: View {
                     }
                     .controlSize(.large)
 
-                    Button { appState.createBlinkProject() } label: {
-                        Label("New Blink Project…", systemImage: "sparkles")
+                    Button { appState.createProject() } label: {
+                        Label("New Project…", systemImage: "sparkles")
                             .frame(maxWidth: .infinity)
                     }
                     .controlSize(.large)

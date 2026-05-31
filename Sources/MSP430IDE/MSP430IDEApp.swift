@@ -42,15 +42,10 @@ struct MSP430IDEApp: App {
         .windowResizability(.contentMinSize)
         .commands {
             CommandGroup(replacing: .newItem) {
-                Button("New Blink Project…") {
-                    appState.createBlinkProject()
+                Button("New Project…") {
+                    appState.createProject()
                 }
                 .keyboardShortcut("n", modifiers: [.command, .shift])
-
-                Button("New Assembly Project…") {
-                    appState.createAssemblyProject()
-                }
-                .keyboardShortcut("n", modifiers: [.command, .shift, .option])
 
                 Button("Open Project Folder…") {
                     appState.promptOpenProject()
@@ -159,6 +154,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // Each pop-out is its own window; never let macOS merge them into
+        // automatic window tabs.
+        NSWindow.allowsAutomaticWindowTabbing = false
         NSApp.setActivationPolicy(.regular)
         NSApp.activate(ignoringOtherApps: true)
     }

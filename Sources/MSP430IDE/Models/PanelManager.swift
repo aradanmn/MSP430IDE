@@ -1,17 +1,12 @@
 import SwiftUI
 import AppKit
+import Combine
 
-/// Identifier for every dockable / detachable panel in the IDE. New
-/// panels (e.g. Serial Monitor, Debug Variables) add a case here and
-/// teach `BottomPanel` / `MainView` how to render them.
+/// Identifier for every dockable / detachable panel in the IDE.
 enum PanelID: String, CaseIterable, Identifiable, Hashable, Codable {
     case console
     case problems
     case fileTree
-    // Future:
-    // case serial
-    // case debugVariables
-    // case outline
 
     var id: String { rawValue }
 
@@ -32,154 +27,335 @@ enum PanelID: String, CaseIterable, Identifiable, Hashable, Codable {
     }
 }
 
-/// Owns runtime layout state for every panel: which bottom tab is active,
-/// and which panels are currently torn off into their own desktop windows.
-///
-/// Pop-out windows host the same SwiftUI panel views (sharing `AppState`
-/// and this manager via the environment), so a floating Console reflects
-/// live build output exactly like the docked one.
+/// One floating window's worth of panels, shown as tabs. Tearing a tab out
+/// splits the group; dropping a tab onto another window merges into it.
+@MainActor
+final class FloatingGroup: ObservableObject, Identifiable {
+    let id = UUID()
+    @Published var panels: [PanelID]
+    @Published var active: PanelID
+
+    init(_ panels: [PanelID]) {
+        self.panels = panels
+        self.active = panels.first ?? .console
+    }
+}
+
+/// Owns the bottom-dock state and every floating window (each a group of
+/// panels). Pop-out windows host the same SwiftUI panel views with the
+/// shared `AppState`, so they stay fully live.
 @MainActor
 final class PanelManager: ObservableObject {
     @Published var activeBottomTab: PanelID = .console
 
-    /// Panels currently shown as floating windows.
-    @Published var floatingPanels: Set<PanelID> = []
+    /// Floating windows, each a group of one or more panels.
+    @Published var floatingGroups: [FloatingGroup] = []
+    /// Flattened set of panels that are currently floating (drives bottomTabs).
+    @Published private(set) var floatingPanels: Set<PanelID> = []
 
-    /// Shared app state, injected once at launch so pop-out windows can
-    /// carry the same environment objects as the main window.
     weak var appState: AppState?
+    weak var mainWindow: NSWindow?
 
-    private var windowControllers: [PanelID: FloatingPanelWindowController] = [:]
+    private var groupWindows: [UUID: FloatingPanelWindowController] = [:]
+    private var tearPreviewWindow: NSWindow?
+
+    // Drag-to-dock: track the floating window currently being moved by its
+    // title bar, and act on release.
+    private var draggedGroupID: UUID?
+    private var suppressMoveTracking = false
+    private var mouseUpMonitors: [Any] = []
 
     func attach(appState: AppState) {
         self.appState = appState
+        installDragMonitorsIfNeeded()
     }
 
-    /// Bottom-dock tabs that aren't currently floating.
+    func setMainWindow(_ window: NSWindow?) { mainWindow = window }
+
+    // MARK: - Drag-to-dock (grab a floating window by its title bar)
+
+    private func installDragMonitorsIfNeeded() {
+        guard mouseUpMonitors.isEmpty else { return }
+        // Title-bar window drags run in AppKit's own event loop, so a global
+        // monitor reliably catches the release; a local one covers the rest.
+        let onUp: () -> Void = { [weak self] in
+            Task { @MainActor in self?.handleWindowDragRelease() }
+        }
+        if let g = NSEvent.addGlobalMonitorForEvents(matching: .leftMouseUp, handler: { _ in onUp() }) {
+            mouseUpMonitors.append(g)
+        }
+        if let l = NSEvent.addLocalMonitorForEvents(matching: .leftMouseUp, handler: { ev in onUp(); return ev }) {
+            mouseUpMonitors.append(l)
+        }
+    }
+
+    fileprivate func noteWindowMoved(_ groupID: UUID) {
+        guard !suppressMoveTracking else { return }
+        draggedGroupID = groupID
+    }
+
+    private func handleWindowDragRelease() {
+        guard let movedID = draggedGroupID else { return }
+        draggedGroupID = nil
+        let point = NSEvent.mouseLocation
+
+        // Dropped over another floating window → merge into it.
+        if let targetID = groupWindows.first(where: { $0.key != movedID && $0.value.window.frame.contains(point) })?.key {
+            mergeGroup(movedID, into: targetID)
+            return
+        }
+        // Dropped over the main window → dock its panels back to the bottom.
+        if let mw = mainWindow, mw.frame.contains(point) {
+            dockGroup(movedID)
+        }
+    }
+
+    private func mergeGroup(_ sourceID: UUID, into targetID: UUID) {
+        guard let source = floatingGroups.first(where: { $0.id == sourceID }),
+              let target = floatingGroups.first(where: { $0.id == targetID }),
+              source !== target else { return }
+        for panel in source.panels where !target.panels.contains(panel) {
+            target.panels.append(panel)
+        }
+        target.active = source.panels.last ?? target.active
+        source.panels.removeAll()
+        groupWindows[sourceID]?.window.close() // empties → handleWindowClosed
+        rebuildFloatingSet()
+        groupWindows[targetID]?.window.makeKeyAndOrderFront(nil)
+    }
+
     var bottomTabs: [PanelID] {
         [.console, .problems].filter { !floatingPanels.contains($0) }
     }
 
     func isFloating(_ id: PanelID) -> Bool { floatingPanels.contains(id) }
-
     func isActiveBottom(_ id: PanelID) -> Bool { activeBottomTab == id }
 
     func showPanel(_ id: PanelID) {
-        if floatingPanels.contains(id) {
-            windowControllers[id]?.window.makeKeyAndOrderFront(nil)
+        if let group = floatingGroups.first(where: { $0.panels.contains(id) }) {
+            group.active = id
+            groupWindows[group.id]?.window.makeKeyAndOrderFront(nil)
             return
         }
-        if bottomTabs.contains(id) {
-            activeBottomTab = id
-        }
+        if bottomTabs.contains(id) { activeBottomTab = id }
     }
 
-    // MARK: - Pop-out / dock
-
-    func togglePopOut(_ id: PanelID) {
-        if floatingPanels.contains(id) { dockBack(id) } else { popOut(id) }
-    }
+    // MARK: - Pop-out via button
 
     func popOut(_ id: PanelID) {
-        guard let appState else { return }
-        if let existing = windowControllers[id] {
-            existing.window.makeKeyAndOrderFront(nil)
+        moveToNewGroup(id, at: nil)
+    }
+
+    func togglePopOut(_ id: PanelID) {
+        if isFloating(id) { dockBack(id) } else { popOut(id) }
+    }
+
+    /// Dock a single panel back to the bottom (removing it from its group).
+    func dockBack(_ id: PanelID) {
+        removeFromCurrentGroup(id)
+        rebuildFloatingSet()
+        fixActiveBottomTab()
+    }
+
+    /// Dock an entire floating group back to the bottom (its window closed).
+    func dockGroup(_ groupID: UUID) {
+        groupWindows[groupID]?.window.close()
+    }
+
+    // MARK: - Tear-off drag preview
+
+    func beginTearPreview(_ id: PanelID) {
+        guard tearPreviewWindow == nil else { return }
+        let hosting = NSHostingController(rootView: TearPreviewCard(id: id))
+        let window = NSWindow(contentViewController: hosting)
+        window.styleMask = [.borderless]
+        window.isOpaque = false
+        window.backgroundColor = .clear
+        window.hasShadow = true
+        window.level = .floating
+        window.ignoresMouseEvents = true
+        window.isReleasedWhenClosed = false
+        window.tabbingMode = .disallowed
+        window.setContentSize(NSSize(width: 220, height: 120))
+        window.alphaValue = 0.92
+        tearPreviewWindow = window
+        window.orderFront(nil)
+        moveTearPreview(to: NSEvent.mouseLocation)
+    }
+
+    func moveTearPreview(to screenPoint: NSPoint) {
+        tearPreviewWindow?.setFrameTopLeftPoint(NSPoint(x: screenPoint.x - 60, y: screenPoint.y + 12))
+    }
+
+    /// Finish a tear drag. If dropped over another floating window, merge
+    /// into it; otherwise pop into a new window at the drop point.
+    func endTear(commit: Bool, id: PanelID, at screenPoint: NSPoint) {
+        tearPreviewWindow?.orderOut(nil)
+        tearPreviewWindow = nil
+        guard commit else { return }
+
+        // A floating window (other than the panel's own solo window) under
+        // the cursor → merge.
+        if let targetID = groupWindows.first(where: { $0.value.window.frame.contains(screenPoint) })?.key,
+           let target = floatingGroups.first(where: { $0.id == targetID }) {
+            merge(id, into: target)
+        } else {
+            moveToNewGroup(id, at: screenPoint)
+        }
+    }
+
+    // MARK: - Group mutations
+
+    private func currentGroup(of id: PanelID) -> FloatingGroup? {
+        floatingGroups.first { $0.panels.contains(id) }
+    }
+
+    private func merge(_ id: PanelID, into target: FloatingGroup) {
+        if currentGroup(of: id) === target {
+            target.active = id
             return
         }
-        floatingPanels.insert(id)
-        // If the active bottom tab just floated, fall back to a docked one.
-        if activeBottomTab == id { activeBottomTab = bottomTabs.first ?? .console }
-
-        let content = FloatingPanelContent(id: id)
-            .environmentObject(appState)
-            .environmentObject(self)
-        let hosting = NSHostingController(rootView: AnyView(content))
-        let window = NSWindow(contentViewController: hosting)
-        window.title = id.title
-        window.styleMask = [.titled, .closable, .resizable, .miniaturizable, .fullSizeContentView]
-        window.titlebarAppearsTransparent = false
-        window.isReleasedWhenClosed = false
-        window.setContentSize(NSSize(width: id == .fileTree ? 280 : 620, height: 380))
-        window.center()
-
-        let controller = FloatingPanelWindowController(id: id, window: window, manager: self)
-        windowControllers[id] = controller
-        window.makeKeyAndOrderFront(nil)
+        target.panels.append(id)
+        target.active = id
+        removeFromCurrentGroup(id, except: target)
+        rebuildFloatingSet()
+        groupWindows[target.id]?.window.makeKeyAndOrderFront(nil)
     }
 
-    func dockBack(_ id: PanelID) {
-        // Closing triggers windowWillClose → handleWindowClosed.
-        windowControllers[id]?.window.close()
+    private func moveToNewGroup(_ id: PanelID, at screenPoint: NSPoint?) {
+        // Already alone in its own window → just reposition that window.
+        if let g = currentGroup(of: id), g.panels == [id] {
+            if let p = screenPoint {
+                suppressMoveTracking = true
+                groupWindows[g.id]?.window.setFrameTopLeftPoint(NSPoint(x: p.x - 60, y: p.y + 12))
+                suppressMoveTracking = false
+            }
+            groupWindows[g.id]?.window.makeKeyAndOrderFront(nil)
+            return
+        }
+        removeFromCurrentGroup(id)
+        let group = FloatingGroup([id])
+        floatingGroups.append(group)
+        rebuildFloatingSet()
+        openWindow(for: group, at: screenPoint)
     }
 
-    fileprivate func handleWindowClosed(_ id: PanelID) {
-        windowControllers[id] = nil
-        floatingPanels.remove(id)
+    /// Remove `id` from whatever floating group holds it. If that empties the
+    /// group, its window is closed. `except` skips a group we're merging into.
+    private func removeFromCurrentGroup(_ id: PanelID, except keep: FloatingGroup? = nil) {
+        for group in floatingGroups where group !== keep && group.panels.contains(id) {
+            group.panels.removeAll { $0 == id }
+            if group.panels.isEmpty {
+                groupWindows[group.id]?.window.close() // → handleWindowClosed
+            } else if group.active == id {
+                group.active = group.panels.first!
+            }
+        }
+    }
+
+    private func rebuildFloatingSet() {
+        floatingPanels = Set(floatingGroups.flatMap { $0.panels })
+        // A panel that just floated must not stay selected in the bottom dock.
         if !bottomTabs.contains(activeBottomTab) {
             activeBottomTab = bottomTabs.first ?? .console
         }
     }
+
+    private func fixActiveBottomTab() {
+        if !bottomTabs.contains(activeBottomTab) {
+            activeBottomTab = bottomTabs.first ?? .console
+        }
+    }
+
+    private func openWindow(for group: FloatingGroup, at screenPoint: NSPoint?) {
+        guard let appState else { return }
+        let content = FloatingGroupView(group: group)
+            .environmentObject(appState)
+            .environmentObject(self)
+        let hosting = NSHostingController(rootView: AnyView(content))
+        let window = NSWindow(contentViewController: hosting)
+        window.styleMask = [.titled, .closable, .resizable, .miniaturizable, .fullSizeContentView]
+        window.isReleasedWhenClosed = false
+        window.tabbingMode = .disallowed
+        window.setContentSize(NSSize(width: 620, height: 380))
+        suppressMoveTracking = true
+        if let p = screenPoint {
+            window.setFrameTopLeftPoint(NSPoint(x: p.x - 60, y: p.y + 12))
+        } else {
+            window.center()
+        }
+        suppressMoveTracking = false
+        let controller = FloatingPanelWindowController(group: group, window: window, manager: self)
+        groupWindows[group.id] = controller
+        window.makeKeyAndOrderFront(nil)
+    }
+
+    fileprivate func handleWindowClosed(_ groupID: UUID) {
+        groupWindows[groupID] = nil
+        floatingGroups.removeAll { $0.id == groupID }
+        rebuildFloatingSet()
+        fixActiveBottomTab()
+    }
 }
 
-/// Retains a pop-out window and re-docks the panel when the window closes.
+/// Retains a pop-out window, keeps its title synced to the group's active
+/// panel, and re-docks the group when the window closes.
 final class FloatingPanelWindowController: NSObject, NSWindowDelegate {
-    let id: PanelID
+    let id: UUID
     let window: NSWindow
     weak var manager: PanelManager?
+    private var titleCancellable: AnyCancellable?
 
-    init(id: PanelID, window: NSWindow, manager: PanelManager) {
-        self.id = id
+    @MainActor
+    init(group: FloatingGroup, window: NSWindow, manager: PanelManager) {
+        self.id = group.id
         self.window = window
         self.manager = manager
         super.init()
         window.delegate = self
+        // Title follows the active tab (fires immediately with current value),
+        // so merging/splitting/tab-switching keeps the title correct.
+        titleCancellable = group.$active.sink { [weak window] active in
+            window?.title = active.title
+        }
     }
 
     func windowWillClose(_ notification: Notification) {
         manager?.handleWindowClosed(id)
     }
+
+    func windowDidMove(_ notification: Notification) {
+        manager?.noteWindowMoved(id)
+    }
 }
 
-/// The content shown inside a pop-out window: a small header with a
-/// dock-back control, plus the panel itself.
-struct FloatingPanelContent: View {
-    let id: PanelID
-    @EnvironmentObject var panels: PanelManager
+/// Captures the hosting NSWindow so PanelManager can detect when a floating
+/// window is dragged over the main window (to re-dock).
+struct MainWindowAccessor: NSViewRepresentable {
+    let onResolve: (NSWindow?) -> Void
 
-    var body: some View {
-        VStack(spacing: 0) {
-            HStack(spacing: 6) {
-                Image(systemName: id.systemImage)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                Text(id.title)
-                    .font(.caption.weight(.semibold))
-                Spacer()
-                Button {
-                    panels.dockBack(id)
-                } label: {
-                    Image(systemName: "arrow.down.right.and.arrow.up.left")
-                }
-                .buttonStyle(.borderless)
-                .help("Dock back into the main window")
-            }
-            .padding(.horizontal, 10)
-            .frame(height: 28)
-            .background(.bar)
-            .overlay(alignment: .bottom) { Divider() }
-
-            content
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-        }
-        .frame(minWidth: 220, minHeight: 160)
+    func makeNSView(context: Context) -> NSView {
+        let view = NSView()
+        Task { @MainActor in onResolve(view.window) }
+        return view
     }
+    func updateNSView(_ nsView: NSView, context: Context) {
+        Task { @MainActor in onResolve(nsView.window) }
+    }
+}
 
-    @ViewBuilder
-    private var content: some View {
-        switch id {
-        case .console:  ConsoleView()
-        case .problems: ProblemsView()
-        case .fileTree: FileTreeView()
+/// The ghost shown under the cursor while tearing a tab out.
+struct TearPreviewCard: View {
+    let id: PanelID
+    var body: some View {
+        VStack(spacing: 8) {
+            Image(systemName: id.systemImage).font(.title2).foregroundStyle(.secondary)
+            Text(id.title).font(.caption.weight(.semibold))
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(RoundedRectangle(cornerRadius: 10).fill(.ultraThinMaterial))
+        .overlay(RoundedRectangle(cornerRadius: 10)
+            .strokeBorder(Color.accentColor, style: StrokeStyle(lineWidth: 2, dash: [6])))
+        .padding(6)
     }
 }

@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 
 /// Tabbed container for the bottom panel. Today: Console + Problems.
 /// Future: more tabs (Serial, Output), draggable to other dock zones,
@@ -82,6 +83,7 @@ private struct TabButton: View {
     @EnvironmentObject var panels: PanelManager
     @EnvironmentObject var appState: AppState
     @State private var hovering = false
+    @State private var torn = false
 
     var body: some View {
         let active = panels.isActiveBottom(id)
@@ -119,6 +121,28 @@ private struct TabButton: View {
         }
         .buttonStyle(.plain)
         .onHover { hovering = $0 }
+        // Tear-off: drag a tab away from the strip. A translucent preview
+        // follows the cursor; the real window is only placed on release.
+        // minimumDistance keeps plain clicks working as tab selection.
+        .simultaneousGesture(
+            DragGesture(minimumDistance: 16, coordinateSpace: .global)
+                .onChanged { value in
+                    let pulledAway = value.translation.height > 22 || abs(value.translation.width) > 80
+                    if !torn && pulledAway {
+                        torn = true
+                        panels.beginTearPreview(id)
+                    }
+                    if torn {
+                        panels.moveTearPreview(to: NSEvent.mouseLocation)
+                    }
+                }
+                .onEnded { _ in
+                    if torn {
+                        panels.endTear(commit: true, id: id, at: NSEvent.mouseLocation)
+                        torn = false
+                    }
+                }
+        )
     }
 }
 
