@@ -31,10 +31,11 @@ struct GutterView: View {
                 let sev = diagMap[line.number]
                 ZStack(alignment: .leading) {
                     if let sev {
-                        Circle()
-                            .fill(color(for: sev))
-                            .frame(width: 7, height: 7)
-                            .padding(.leading, 3)
+                        Image(systemName: gutterIcon(for: sev))
+                            .font(.system(size: 9, weight: .bold))
+                            .foregroundStyle(color(for: sev))
+                            .frame(width: 12, height: 12)
+                            .padding(.leading, 2)
                             .help(diagMessage(line: line.number))
                     }
                     Text("\(line.number)")
@@ -75,11 +76,19 @@ struct GutterView: View {
             .joined(separator: "\n")
     }
 
+    private func gutterIcon(for sev: Diagnostic.Severity) -> String {
+        switch sev {
+        case .error:   return "xmark.circle.fill"
+        case .warning: return "exclamationmark.triangle.fill"
+        case .note:    return "info.circle.fill"
+        }
+    }
+
     private func color(for sev: Diagnostic.Severity) -> Color {
         switch sev {
-        case .error: return .red
-        case .warning: return .orange
-        case .note: return .blue
+        case .error:   return .red
+        case .warning: return .yellow
+        case .note:    return .blue
         }
     }
 }

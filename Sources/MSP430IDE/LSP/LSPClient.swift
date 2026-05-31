@@ -128,16 +128,20 @@ final class LSPClient: ObservableObject {
 
     func start(rootURI: URL, compileCommandsDir: URL, queryDriver: URL?) async {
         guard !isRunning else { return }
+        // --query-driver lets clangd ask the cross-compiler for its built-in
+        // system include paths. The TI support headers (msp430.h etc.) are
+        // injected via -isystem in compile_commands.json so they're found
+        // regardless. Keep query-driver for any GCC built-ins it exposes.
         var args = [
             "--compile-commands-dir=\(compileCommandsDir.path)",
-            "--background-index",
+            "--background-index=0",   // disable background indexing (no index needed for bare-metal)
             "--header-insertion=never",
             "--limit-results=64",
             "--pch-storage=memory",
             "--log=error"
         ]
         if let queryDriver {
-            args.append("--query-driver=\(queryDriver.path)")
+            args.append("--query-driver=\(queryDriver.path)*")  // glob: match gcc + cpp etc.
         }
 
         transport.onMessage = { [weak self] obj in

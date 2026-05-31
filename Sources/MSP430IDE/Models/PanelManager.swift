@@ -17,7 +17,7 @@ enum PanelID: String, CaseIterable, Identifiable, Hashable, Codable {
     var title: String {
         switch self {
         case .console:   return "Console"
-        case .problems:  return "Problems"
+        case .problems:  return "Issues"
         case .fileTree:  return "Files"
         }
     }

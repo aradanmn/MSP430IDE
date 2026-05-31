@@ -98,7 +98,7 @@ struct DiagnosticRow: View {
     private var color: Color {
         switch diag.severity {
         case .error:   return .red
-        case .warning: return .orange
+        case .warning: return .yellow
         case .note:    return .blue
         }
     }

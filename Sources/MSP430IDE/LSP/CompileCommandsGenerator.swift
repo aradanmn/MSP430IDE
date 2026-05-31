@@ -27,7 +27,10 @@ enum CompileCommandsGenerator {
         args.append(contentsOf: effective.defines.map { "-D\($0)" })
         let supportPath = project.toolchainOverride.supportPath ?? toolchain.supportIncludePath?.path
         if let supportPath {
-            args.append("-I\(supportPath)")
+            // Use -isystem so clangd treats this as a system include directory,
+            // suppresses warnings from device headers, and finds <msp430.h>
+            // regardless of whether --query-driver succeeds.
+            args.append(contentsOf: ["-isystem", supportPath])
         }
         for d in effective.includeDirs {
             let url = URL(fileURLWithPath: d, relativeTo: project.rootURL)

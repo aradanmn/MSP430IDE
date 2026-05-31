@@ -106,7 +106,7 @@ private struct DiagnosticCountBadge: View {
                 badgeText("\(errors)", color: .red)
             }
             if warnings > 0 {
-                badgeText("\(warnings)", color: .orange)
+                badgeText("\(warnings)", color: .yellow)
             }
         }
     }
@@ -114,7 +114,7 @@ private struct DiagnosticCountBadge: View {
     private func badgeText(_ s: String, color: Color) -> some View {
         Text(s)
             .font(.caption2.weight(.bold))
-            .foregroundStyle(.white)
+            .foregroundStyle(color == .yellow ? Color.black : Color.white)
             .padding(.horizontal, 5)
             .padding(.vertical, 1)
             .background(Capsule().fill(color))

@@ -42,11 +42,21 @@ enum BlinkTemplate {
     .DS_Store
     """
 
+    /// clangd config that suppresses false positives from GCC MSP430 built-ins
+    /// (e.g. __delay_cycles) that clang's frontend doesn't know about.
+    static let clangdConfig = """
+    CompileFlags:
+      Add:
+        # __delay_cycles and other MSP430 GCC built-ins are unknown to clangd.
+        - -Wno-implicit-function-declaration
+    """
+
     static func create(at url: URL) throws {
         let fm = FileManager.default
         try fm.createDirectory(at: url, withIntermediateDirectories: true)
         try mainC.write(to: url.appendingPathComponent("main.c"), atomically: true, encoding: .utf8)
         try tomlContent.write(to: url.appendingPathComponent("msp430.toml"), atomically: true, encoding: .utf8)
         try gitignore.write(to: url.appendingPathComponent(".gitignore"), atomically: true, encoding: .utf8)
+        try clangdConfig.write(to: url.appendingPathComponent(".clangd"), atomically: true, encoding: .utf8)
     }
 }
