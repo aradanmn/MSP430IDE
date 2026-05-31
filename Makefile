@@ -19,6 +19,7 @@ app: build
 	@mkdir -p $(APP_BUNDLE)/Contents/Resources
 	@cp Info.plist $(APP_BUNDLE)/Contents/Info.plist
 	@cp $(BIN) $(APP_BUNDLE)/Contents/MacOS/$(APP_NAME)
+	@cp Resources/AppIcon.icns $(APP_BUNDLE)/Contents/Resources/AppIcon.icns
 	@codesign --force --deep --sign - $(APP_BUNDLE) 2>/dev/null || true
 	@echo "Built $(APP_BUNDLE)"
 

@@ -51,13 +51,100 @@ final class AppState: ObservableObject {
     let editor = EditorService()
     private var editorSubscription: AnyCancellable?
 
+    /// clangd integration (nil if clangd isn't installed). Provides live
+    /// diagnostics and completion independent of the build.
+    let lsp: LSPClient?
+    private var lspRootURL: URL?
+    private var lspOpenDocs: Set<URL> = []
+    private var bufferObservers: [URL: AnyCancellable] = [:]
+
+    /// Diagnostics from the last build (per file). Kept separate from LSP
+    /// diagnostics so neither clobbers the other; `diagnostics` is the
+    /// merged, displayed result.
+    private var buildDiagnostics: [URL: [Diagnostic]] = [:]
+    /// Live diagnostics published by clangd, per file.
+    private var lspDiagnostics: [URL: [Diagnostic]] = [:]
+
     init() {
         self.toolchain = Toolchain.detect()
+        if let clangd = LSPClient.detect() {
+            self.lsp = LSPClient(clangdPath: clangd)
+        } else {
+            self.lsp = nil
+        }
         editorSubscription = editor.objectWillChange.sink { [weak self] _ in
             Task { @MainActor [weak self] in
                 self?.objectWillChange.send()
             }
         }
+        lsp?.onPublishDiagnostics = { [weak self] file, diags in
+            guard let self else { return }
+            self.lspDiagnostics[file] = diags
+            self.refreshDisplayedDiagnostics()
+        }
+    }
+
+    // MARK: - LSP (clangd)
+
+    private static let cFamilyExtensions: Set<String> = ["c", "h", "cpp", "cc", "cxx", "hpp", "hh", "hxx"]
+
+    private func isCFamily(_ url: URL) -> Bool {
+        Self.cFamilyExtensions.contains(url.pathExtension.lowercased())
+    }
+
+    private func languageId(for url: URL) -> String {
+        switch url.pathExtension.lowercased() {
+        case "cpp", "cc", "cxx", "hpp", "hh", "hxx": return "cpp"
+        default: return "c"
+        }
+    }
+
+    /// (Re)generate compile_commands.json for the workspace and ensure a
+    /// clangd instance is running, rooted at the workspace.
+    private func ensureLSPStarted() {
+        guard let lsp, let root = workspaceRoot, !subprojects.isEmpty else { return }
+        guard toolchain.gccPath != nil else { return } // query-driver needs the cross-gcc
+        let outDir = root.appendingPathComponent(".msp430ide")
+        try? CompileCommandsGenerator.generateCombined(
+            projects: Array(subprojects.values),
+            configName: activeConfig,
+            toolchain: toolchain,
+            outputDir: outDir
+        )
+        if lspRootURL == root && lsp.isRunning { return }
+        lspRootURL = root
+        let driver = toolchain.gccPath
+        Task { await lsp.start(rootURI: root, compileCommandsDir: outDir, queryDriver: driver) }
+    }
+
+    /// Creates a buffer and starts observing it so edits stream to clangd
+    /// (debounced). Use this everywhere instead of `TextBuffer.load`.
+    private func makeBuffer(for url: URL) -> TextBuffer {
+        let buf = TextBuffer.load(from: url)
+        bufferObservers[url] = buf.$text
+            .dropFirst()
+            .debounce(for: .milliseconds(250), scheduler: RunLoop.main)
+            .sink { [weak self] text in self?.lspDidChange(url: url, text: text) }
+        return buf
+    }
+
+    private func lspDidOpen(_ url: URL) {
+        guard let lsp, isCFamily(url), let buf = buffers[url], !lspOpenDocs.contains(url) else { return }
+        lspOpenDocs.insert(url)
+        lsp.didOpen(url: url, text: buf.text, languageId: languageId(for: url))
+    }
+
+    private func lspDidChange(url: URL, text: String) {
+        guard let lsp, lspOpenDocs.contains(url) else { return }
+        lsp.didChange(url: url, text: text)
+    }
+
+    private func lspDidClose(_ url: URL) {
+        bufferObservers[url] = nil
+        guard let lsp, lspOpenDocs.remove(url) != nil else { return }
+        lspDiagnostics[url] = nil
+        lsp.didClose(url: url)
+        refreshDisplayedDiagnostics()
     }
 
     // MARK: - Project lifecycle
@@ -133,7 +220,7 @@ final class AppState: ObservableObject {
         }
         for u in restoredTabs {
             editor.open(u)
-            if buffers[u] == nil { buffers[u] = TextBuffer.load(from: u) }
+            if buffers[u] == nil { buffers[u] = makeBuffer(for: u) }
         }
         if let activeRel = wsState.activeTab {
             let u = canonical.appendingPathComponent(activeRel)
@@ -159,6 +246,9 @@ final class AppState: ObservableObject {
             // In workspace-with-only-nested-subprojects mode, do nothing
             // until the user clicks a file.
         }
+
+        ensureLSPStarted()
+        for u in restoredTabs { lspDidOpen(u) }
 
         statusMessage = describeOpened(canonical)
     }
@@ -256,6 +346,7 @@ final class AppState: ObservableObject {
             if let root = workspaceRoot {
                 displayFiles = ProjectLoader.scanForDisplay(at: root)
             }
+            ensureLSPStarted()
             return true
         } catch {
             let alert = NSAlert()
@@ -319,6 +410,13 @@ final class AppState: ObservableObject {
 
         persistWorkspaceState()
 
+        for url in editor.openTabs { lspDidClose(url) }
+        if let lsp { Task { await lsp.stop() } }
+        lspRootURL = nil
+        lspOpenDocs = []
+        lspDiagnostics = [:]
+        bufferObservers = [:]
+
         editor.closeAll()
         buffers = [:]
         selectedFile = nil
@@ -339,8 +437,9 @@ final class AppState: ObservableObject {
         editor.open(url)
         selectedFile = url
         if buffers[url] == nil {
-            buffers[url] = TextBuffer.load(from: url)
+            buffers[url] = makeBuffer(for: url)
         }
+        lspDidOpen(url)
         // Auto-switch active project to the sub-project enclosing this file.
         if let proj = enclosingProject(for: url) {
             project = proj
@@ -374,6 +473,7 @@ final class AppState: ObservableObject {
                 break
             }
         }
+        lspDidClose(url)
         editor.close(url)
         buffers.removeValue(forKey: url)
         selectedFile = editor.activeTab
@@ -390,6 +490,7 @@ final class AppState: ObservableObject {
                 buf.markClean()
             }
         }
+        for url in editor.openTabs { lspDidClose(url) }
         editor.closeAll()
         buffers = [:]
         selectedFile = nil
@@ -426,8 +527,9 @@ final class AppState: ObservableObject {
     func reopenLastClosed() {
         guard let url = editor.reopenLastClosed() else { return }
         if buffers[url] == nil, FileManager.default.fileExists(atPath: url.path) {
-            buffers[url] = TextBuffer.load(from: url)
+            buffers[url] = makeBuffer(for: url)
         }
+        lspDidOpen(url)
         selectedFile = url
         project = enclosingProject(for: url) ?? project
         persistWorkspaceState()
@@ -516,8 +618,24 @@ final class AppState: ObservableObject {
     func appendConsole(_ s: String) { consoleOutput += s }
     func clearConsole() {
         consoleOutput = ""
-        diagnostics = [:]
-        diagnosticsInOrder = []
+        buildDiagnostics = [:]
+        refreshDisplayedDiagnostics()
+    }
+
+    /// Recompute the displayed `diagnostics`/`diagnosticsInOrder` by merging
+    /// build and live (clangd) diagnostics. For files clangd is tracking,
+    /// its diagnostics win (they reflect the current buffer); other files
+    /// fall back to the last build's output.
+    private func refreshDisplayedDiagnostics() {
+        var merged = buildDiagnostics
+        for (url, diags) in lspDiagnostics { merged[url] = diags }
+        let cleaned = merged.filter { !$0.value.isEmpty }
+        diagnostics = cleaned
+        diagnosticsInOrder = cleaned
+            .sorted { $0.key.path < $1.key.path }
+            .flatMap { entry in
+                entry.value.sorted { ($0.line, $0.column ?? 0) < ($1.line, $1.column ?? 0) }
+            }
     }
 
     /// Re-parse a slice of the console for diagnostics; called after each
@@ -528,12 +646,12 @@ final class AppState: ObservableObject {
         let startIndex = consoleOutput.index(consoleOutput.startIndex, offsetBy: offset)
         let slice = String(consoleOutput[startIndex...])
         let newDiags = DiagnosticParser.parse(output: slice, projectRoot: projectRoot)
-        diagnosticsInOrder = newDiags
         var byFile: [URL: [Diagnostic]] = [:]
         for diag in newDiags {
             byFile[diag.file, default: []].append(diag)
         }
-        diagnostics = byFile
+        buildDiagnostics = byFile
+        refreshDisplayedDiagnostics()
         onDiagnosticsUpdated?(newDiags)
     }
 
