@@ -19,25 +19,30 @@ struct MainView: View {
         })
     }
 
-    /// Central editor surrounded by dock regions at each occupied edge.
-    /// Empty regions collapse; occupied ones are resizable via split dividers.
+    /// Central editor column surrounded by dock regions. Left/right span the
+    /// full window height (outermost); top/bottom are nested inside the editor
+    /// column so they only span its width. The editor keeps layout priority so
+    /// it dominates the real estate. Empty regions collapse.
     @ViewBuilder
     private var dockLayout: some View {
-        VSplitView {
-            if panels.hasPanels(at: .top) {
-                DockRegionView(edge: .top).frame(minHeight: 80, idealHeight: 160)
+        HSplitView {
+            if panels.hasPanels(at: .left) {
+                DockRegionView(edge: .left).frame(minWidth: 160, idealWidth: 240)
             }
-            HSplitView {
-                if panels.hasPanels(at: .left) {
-                    DockRegionView(edge: .left).frame(minWidth: 160, idealWidth: 240)
+            VSplitView {
+                if panels.hasPanels(at: .top) {
+                    DockRegionView(edge: .top).frame(minHeight: 120, idealHeight: 160)
                 }
-                EditorPane().frame(minWidth: 360)
-                if panels.hasPanels(at: .right) {
-                    DockRegionView(edge: .right).frame(minWidth: 160, idealWidth: 280)
+                EditorPane()
+                    .frame(minWidth: 360, minHeight: 200)
+                    .layoutPriority(1)   // editor claims the vertical slack (~75%+)
+                if panels.hasPanels(at: .bottom) {
+                    DockRegionView(edge: .bottom).frame(minHeight: 150, idealHeight: 200)
                 }
             }
-            if panels.hasPanels(at: .bottom) {
-                DockRegionView(edge: .bottom).frame(minHeight: 80, idealHeight: 200)
+            .layoutPriority(1)
+            if panels.hasPanels(at: .right) {
+                DockRegionView(edge: .right).frame(minWidth: 160, idealWidth: 280)
             }
         }
     }
