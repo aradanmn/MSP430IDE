@@ -184,7 +184,7 @@ enum ProjectLoader {
                 continue
             }
             let ext = canonical.pathExtension.lowercased()
-            if ["c", "h", "s", "asm"].contains(ext) {
+            if displayExtensions.contains(ext) {
                 result.append(canonical)
                 if result.count >= scanFileCap {
                     FileHandle.standardError.write(
@@ -197,6 +197,14 @@ enum ProjectLoader {
         }
         return result
     }
+
+    /// File extensions surfaced in the tree (and thus openable). Source +
+    /// common text/markdown/config files.
+    static let displayExtensions: Set<String> = [
+        "c", "h", "s", "asm",
+        "txt", "text", "md", "markdown", "mdown",
+        "toml", "json", "ld"
+    ]
 
     static let defaultDisplayExcludes: [String] = [
         "build/**", "**/build/**",

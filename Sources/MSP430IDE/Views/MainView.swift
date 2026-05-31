@@ -50,16 +50,26 @@ private struct EditorPaneContent: View {
     let url: URL
     @ObservedObject var buffer: TextBuffer
     @State private var gutter = GutterState()
+    @State private var markdownPreview = true
+
+    private var isMarkdown: Bool {
+        ["md", "markdown", "mdown"].contains(url.pathExtension.lowercased())
+    }
 
     var body: some View {
         VStack(spacing: 0) {
-            FileHeader(url: url, buffer: buffer)
-            HStack(spacing: 0) {
-                GutterView(state: gutter, url: url)
-                CodeEditorView(buffer: buffer, gutter: gutter)
+            FileHeader(url: url, buffer: buffer, isMarkdown: isMarkdown, previewMode: $markdownPreview)
+            if isMarkdown && markdownPreview {
+                MarkdownView(text: buffer.text)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                HStack(spacing: 0) {
+                    GutterView(state: gutter, url: url)
+                    CodeEditorView(buffer: buffer, gutter: gutter)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
@@ -68,6 +78,8 @@ private struct EditorPaneContent: View {
 struct FileHeader: View {
     let url: URL
     @ObservedObject var buffer: TextBuffer
+    var isMarkdown: Bool = false
+    var previewMode: Binding<Bool>? = nil
 
     var body: some View {
         HStack(spacing: 6) {
@@ -79,10 +91,20 @@ struct FileHeader: View {
                 Text("•").foregroundStyle(.orange).bold()
             }
             Spacer()
-            Text("\(buffer.text.count) chars")
-                .font(.caption)
-                .foregroundStyle(.tertiary)
-                .monospacedDigit()
+            if isMarkdown, let previewMode {
+                Picker("", selection: previewMode) {
+                    Text("Preview").tag(true)
+                    Text("Source").tag(false)
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                .frame(width: 150)
+            } else {
+                Text("\(buffer.text.count) chars")
+                    .font(.caption)
+                    .foregroundStyle(.tertiary)
+                    .monospacedDigit()
+            }
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 6)

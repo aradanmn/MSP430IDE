@@ -63,8 +63,7 @@ private struct FileTreeRow: View {
     var body: some View {
         let isSubproject = isProjectFolder
         HStack(spacing: 6) {
-            Image(systemName: iconName)
-                .foregroundStyle(iconColor)
+            icon
             Text(node.name)
                 .lineLimit(1)
                 .truncationMode(.middle)
@@ -111,28 +110,55 @@ private struct FileTreeRow: View {
         return appState.subprojects[folderURL] != nil
     }
 
+    /// Row icon. Sub-projects get a folder with a small hammer badge
+    /// (composed, since SF Symbols has no `folder.badge.hammer`).
+    /// Row icon. Sub-projects get a folder with a small chip badge
+    /// (composed, since SF Symbols has no `folder.badge.cpu`) — echoing
+    /// the app icon's microcontroller motif.
+    @ViewBuilder
+    private var icon: some View {
+        if isProjectFolder {
+            Image(systemName: "folder.fill")
+                .foregroundStyle(Color.teal)
+                .overlay(alignment: .bottomTrailing) {
+                    Image(systemName: "cpu.fill")
+                        .font(.system(size: 7, weight: .bold))
+                        .foregroundStyle(.white)
+                        .padding(2)
+                        .background(Circle().fill(Color.indigo))
+                        .offset(x: 3, y: 2)
+                }
+        } else {
+            Image(systemName: iconName)
+                .foregroundStyle(iconColor)
+        }
+    }
+
     private var iconName: String {
-        if isProjectFolder { return "folder.badge.gearshape" }
         if node.isFolder { return "folder" }
         switch node.url?.pathExtension.lowercased() {
         case "c": return "c.square"
         case "h": return "h.square"
         case "s", "asm": return "s.square"
-        case "toml": return "doc.text"
+        case "md", "markdown", "mdown": return "doc.richtext"
+        case "txt", "text": return "doc.plaintext"
+        case "toml": return "doc.badge.gearshape"
         case "json": return "curlybraces"
-        case "md": return "doc.richtext"
+        case "ld": return "memorychip"
         default: return "doc"
         }
     }
 
     private var iconColor: Color {
-        if isProjectFolder { return .accentColor }
         if node.isFolder { return .secondary }
         switch node.url?.pathExtension.lowercased() {
         case "c": return .blue
         case "h": return .purple
         case "s", "asm": return .orange
-        case "toml", "json": return .secondary
+        case "md", "markdown", "mdown": return .green
+        case "toml": return .brown
+        case "json": return .yellow
+        case "ld": return .pink
         default: return .secondary
         }
     }

@@ -53,6 +53,11 @@ final class AppState: ObservableObject {
 
     /// clangd integration (nil if clangd isn't installed). Provides live
     /// diagnostics and completion independent of the build.
+    /// Watches the workspace tree so external add/remove/rename of files
+    /// is reflected in the file tree without reopening the project.
+    private var fileWatcher: FileSystemWatcher?
+    private var pendingTreeRefresh: DispatchWorkItem?
+
     let lsp: LSPClient?
     private var lspRootURL: URL?
     private var lspOpenDocs: Set<URL> = []
@@ -145,6 +150,57 @@ final class AppState: ObservableObject {
         lspDiagnostics[url] = nil
         lsp.didClose(url: url)
         refreshDisplayedDiagnostics()
+    }
+
+    // MARK: - File tree watching
+
+    private func startWatching(_ root: URL) {
+        fileWatcher?.stop()
+        let watcher = FileSystemWatcher(path: root.path) { [weak self] in
+            DispatchQueue.main.async { self?.scheduleTreeRefresh() }
+        }
+        watcher.start()
+        fileWatcher = watcher
+    }
+
+    private func stopWatching() {
+        fileWatcher?.stop()
+        fileWatcher = nil
+        pendingTreeRefresh?.cancel()
+        pendingTreeRefresh = nil
+    }
+
+    /// Debounced — FSEvents can deliver bursts.
+    private func scheduleTreeRefresh() {
+        pendingTreeRefresh?.cancel()
+        let work = DispatchWorkItem { [weak self] in self?.refreshFileTree() }
+        pendingTreeRefresh = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3, execute: work)
+    }
+
+    /// Re-scan the tree and reload sub-project source lists to reflect
+    /// files added/removed outside the IDE.
+    func refreshFileTree() {
+        guard let root = workspaceRoot else { return }
+        let scanned = ProjectLoader.scanForDisplay(at: root)
+        if scanned != displayFiles { displayFiles = scanned }
+
+        // Pick up sub-projects newly created (or deleted) on disk.
+        var discovered: Set<URL> = []
+        if FileManager.default.fileExists(atPath: root.appendingPathComponent(ProjectLoader.configFileName).path) {
+            discovered.insert(root)
+        }
+        for sub in ProjectLoader.discoverSubprojects(at: root) { discovered.insert(sub) }
+        for removed in subprojects.keys where !discovered.contains(removed) {
+            subprojects[removed] = nil
+        }
+        for sub in discovered {
+            if let updated = try? ProjectLoader.load(from: sub) { subprojects[sub] = updated }
+        }
+        if let active = selectedFile { project = enclosingProject(for: active) ?? project }
+
+        // Keep clangd's compilation database current.
+        ensureLSPStarted()
     }
 
     // MARK: - Project lifecycle
@@ -249,6 +305,7 @@ final class AppState: ObservableObject {
 
         ensureLSPStarted()
         for u in restoredTabs { lspDidOpen(u) }
+        startWatching(canonical)
 
         statusMessage = describeOpened(canonical)
     }
@@ -410,6 +467,7 @@ final class AppState: ObservableObject {
 
         persistWorkspaceState()
 
+        stopWatching()
         for url in editor.openTabs { lspDidClose(url) }
         if let lsp { Task { await lsp.stop() } }
         lspRootURL = nil
