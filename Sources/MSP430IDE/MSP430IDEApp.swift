@@ -24,6 +24,8 @@ struct MSP430IDEApp: App {
                 .environmentObject(panels)
                 .frame(minWidth: 720, minHeight: 480)
                 .onAppear {
+                    // Let pop-out windows share the same app state.
+                    panels.attach(appState: appState)
                     // Whenever a new build produces diagnostics, flip the
                     // bottom panel to Problems. Auto-switch on any
                     // severity (errors or warnings) per user preference.

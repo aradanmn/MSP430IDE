@@ -11,13 +11,30 @@ struct BottomPanel: View {
         VStack(spacing: 0) {
             TabStrip()
             Group {
-                switch panels.activeBottomTab {
-                case .console:  ConsoleView()
-                case .problems: ProblemsView()
-                default:        Color(nsColor: .textBackgroundColor)
+                if panels.bottomTabs.isEmpty {
+                    floatedAwayState
+                } else {
+                    switch panels.activeBottomTab {
+                    case .console:  ConsoleView()
+                    case .problems: ProblemsView()
+                    default:        Color(nsColor: .textBackgroundColor)
+                    }
                 }
             }
         }
+    }
+
+    private var floatedAwayState: some View {
+        VStack(spacing: 6) {
+            Image(systemName: "rectangle.on.rectangle.angled")
+                .font(.system(size: 22))
+                .foregroundStyle(.tertiary)
+            Text("Panels are open in separate windows")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Color(nsColor: .textBackgroundColor))
     }
 }
 
@@ -31,6 +48,16 @@ private struct TabStrip: View {
                 TabButton(id: id)
             }
             Spacer(minLength: 8)
+            if !panels.bottomTabs.isEmpty {
+                Button {
+                    panels.popOut(panels.activeBottomTab)
+                } label: {
+                    Image(systemName: "rectangle.portrait.and.arrow.right")
+                }
+                .buttonStyle(.borderless)
+                .padding(.trailing, 8)
+                .help("Open “\(panels.activeBottomTab.title)” in a new window")
+            }
             Button {
                 appState.clearConsole()
             } label: {
