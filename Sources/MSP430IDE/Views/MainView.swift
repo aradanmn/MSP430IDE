@@ -3,35 +3,13 @@ import SwiftUI
 struct MainView: View {
     @EnvironmentObject var appState: AppState
     @EnvironmentObject var panels: PanelManager
-    @State private var columnVisibility: NavigationSplitViewVisibility = .all
 
     var body: some View {
         VStack(spacing: 0) {
-            NavigationSplitView(columnVisibility: $columnVisibility) {
-                FileTreeView(showPopOutControl: true)
-                    .navigationSplitViewColumnWidth(min: 180, ideal: 220, max: 360)
-            } detail: {
-                Group {
-                    if panels.bottomTabs.isEmpty {
-                        // All bottom panels are floating — give the space to
-                        // the editor instead of showing an empty dock.
-                        EditorPane()
-                    } else {
-                        ResizableVerticalSplit(
-                            defaultFraction: 0.25,
-                            minTopHeight: 150,
-                            minBottomHeight: 60
-                        ) {
-                            EditorPane()
-                        } bottom: {
-                            BottomPanel()
-                        }
-                    }
-                }
-                .frame(minWidth: 400)
-            }
-            .navigationTitle(appState.project?.rootURL.lastPathComponent ?? "MSP430 IDE")
-            .toolbar { AppToolbar() }
+            dockLayout
+                .frame(minWidth: 480, minHeight: 320)
+                .navigationTitle(appState.project?.rootURL.lastPathComponent ?? "MSP430 IDE")
+                .toolbar { AppToolbar() }
 
             StatusBar()
         }
@@ -39,10 +17,28 @@ struct MainView: View {
             panels.setMainWindow($0)
             appState.setMainWindow($0)
         })
-        // Collapse the sidebar while the file tree is floating so it isn't
-        // shown in two places at once.
-        .onChange(of: panels.floatingPanels) { floating in
-            columnVisibility = floating.contains(.fileTree) ? .detailOnly : .all
+    }
+
+    /// Central editor surrounded by dock regions at each occupied edge.
+    /// Empty regions collapse; occupied ones are resizable via split dividers.
+    @ViewBuilder
+    private var dockLayout: some View {
+        VSplitView {
+            if panels.hasPanels(at: .top) {
+                DockRegionView(edge: .top).frame(minHeight: 80, idealHeight: 160)
+            }
+            HSplitView {
+                if panels.hasPanels(at: .left) {
+                    DockRegionView(edge: .left).frame(minWidth: 160, idealWidth: 240)
+                }
+                EditorPane().frame(minWidth: 360)
+                if panels.hasPanels(at: .right) {
+                    DockRegionView(edge: .right).frame(minWidth: 160, idealWidth: 280)
+                }
+            }
+            if panels.hasPanels(at: .bottom) {
+                DockRegionView(edge: .bottom).frame(minHeight: 80, idealHeight: 200)
+            }
         }
     }
 }

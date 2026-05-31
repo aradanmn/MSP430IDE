@@ -3,59 +3,9 @@ import AppKit
 
 struct FileTreeView: View {
     @EnvironmentObject var appState: AppState
-    @EnvironmentObject var panels: PanelManager
-    /// Show the pop-out control (only in the docked sidebar, not when this
-    /// view is already inside a floating window).
-    var showPopOutControl: Bool = false
-    @State private var torn = false
 
     var body: some View {
-        VStack(spacing: 0) {
-            if showPopOutControl, !panels.isFloating(.fileTree) {
-                header
-            }
-            treeContent
-        }
-    }
-
-    private var header: some View {
-        HStack(spacing: 6) {
-            Text(appState.workspaceRoot?.lastPathComponent ?? "Files")
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
-                .truncationMode(.middle)
-            Spacer(minLength: 4)
-            Button {
-                panels.popOut(.fileTree)
-            } label: {
-                Image(systemName: "rectangle.portrait.and.arrow.right")
-            }
-            .buttonStyle(.borderless)
-            .help("Open the file tree in a new window")
-        }
-        .padding(.horizontal, 10)
-        .frame(height: 26)
-        .background(.bar)
-        .overlay(alignment: .bottom) { Divider() }
-        .contentShape(Rectangle())
-        // Drag the header to tear the tree out into a window (like a tab).
-        .simultaneousGesture(
-            DragGesture(minimumDistance: 16, coordinateSpace: .global)
-                .onChanged { value in
-                    if !torn && (value.translation.width > 24 || abs(value.translation.height) > 60) {
-                        torn = true
-                        panels.beginTearPreview(.fileTree)
-                    }
-                    if torn { panels.moveTearPreview(to: NSEvent.mouseLocation) }
-                }
-                .onEnded { _ in
-                    if torn {
-                        panels.endTear(commit: true, id: .fileTree, at: NSEvent.mouseLocation)
-                        torn = false
-                    }
-                }
-        )
+        treeContent
     }
 
     @ViewBuilder
