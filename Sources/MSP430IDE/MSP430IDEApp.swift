@@ -54,6 +54,12 @@ struct MSP430IDEApp: App {
 
                 Divider()
 
+                Button("Close File") {
+                    if let url = appState.selectedFile { appState.closeTab(url) }
+                }
+                .keyboardShortcut("w", modifiers: .command)
+                .disabled(appState.selectedFile == nil)
+
                 Button("Close Project") {
                     appState.closeProject()
                 }
@@ -75,12 +81,6 @@ struct MSP430IDEApp: App {
             }
 
             CommandMenu("Tabs") {
-                Button("Close Tab") {
-                    if let url = appState.selectedFile { appState.closeTab(url) }
-                }
-                .keyboardShortcut("w", modifiers: .command)
-                .disabled(appState.selectedFile == nil)
-
                 Button("Close All Tabs") { appState.closeAllTabs() }
                     .keyboardShortcut("w", modifiers: [.command, .option])
                     .disabled(appState.editor.openTabs.isEmpty)

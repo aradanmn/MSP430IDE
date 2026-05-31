@@ -4,9 +4,10 @@ import AppKit
 struct CodeEditorView: NSViewRepresentable {
     @ObservedObject var buffer: TextBuffer
     let gutter: GutterState
+    var lsp: LSPClient?
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(buffer: buffer, gutter: gutter)
+        Coordinator(buffer: buffer, gutter: gutter, lsp: lsp)
     }
 
     func makeNSView(context: Context) -> NSScrollView {
@@ -127,6 +128,7 @@ struct CodeEditorView: NSViewRepresentable {
     final class Coordinator: NSObject, NSTextViewDelegate {
         var buffer: TextBuffer
         var gutter: GutterState
+        var lsp: LSPClient?
         weak var textView: NSTextView?
         weak var scrollView: NSScrollView?
 
@@ -136,9 +138,15 @@ struct CodeEditorView: NSViewRepresentable {
         /// so a later ⌘Z invokes a text operation on a freed view → crash.
         let editorUndoManager = UndoManager()
 
-        init(buffer: TextBuffer, gutter: GutterState) {
+        /// Completion words from the last clangd query (consumed by the
+        /// native completion list).
+        private var completionWords: [String] = []
+        private static let cFamily: Set<String> = ["c", "h", "cpp", "cc", "cxx", "hpp", "hh", "hxx"]
+
+        init(buffer: TextBuffer, gutter: GutterState, lsp: LSPClient?) {
             self.buffer = buffer
             self.gutter = gutter
+            self.lsp = lsp
         }
 
         deinit {
@@ -238,6 +246,74 @@ struct CodeEditorView: NSViewRepresentable {
                 HighlighterRegistry.highlighter(for: buffer.url).highlight(storage: storage)
             }
             scheduleRecompute()
+            // Auto-offer completion right after a member-access dot.
+            let loc = tv.selectedRange().location
+            if loc > 0 {
+                let s = tv.string as NSString
+                if s.character(at: loc - 1) == unichar(46) /* '.' */ {
+                    triggerCompletion()
+                }
+            }
+        }
+
+        // MARK: - Completion (clangd)
+
+        /// Intercept the Escape / F5 "complete:" command so manual completion
+        /// uses clangd instead of the built-in dictionary.
+        func textView(_ textView: NSTextView, doCommandBy selector: Selector) -> Bool {
+            if selector == Selector(("complete:")) {
+                triggerCompletion()
+                return true
+            }
+            return false
+        }
+
+        /// Feed clangd's words into the native completion list, filtered by the
+        /// partial word the user is on.
+        func textView(_ textView: NSTextView,
+                      completions words: [String],
+                      forPartialWordRange charRange: NSRange,
+                      indexOfSelectedItem index: UnsafeMutablePointer<Int>?) -> [String] {
+            let partial = (textView.string as NSString).substring(with: charRange)
+            guard !partial.isEmpty else { return completionWords }
+            let lower = partial.lowercased()
+            let filtered = completionWords.filter { $0.lowercased().hasPrefix(lower) }
+            return filtered.isEmpty ? completionWords : filtered
+        }
+
+        private func triggerCompletion() {
+            guard let tv = textView, let lsp,
+                  Self.cFamily.contains(buffer.url.pathExtension.lowercased()) else { return }
+            let location = tv.selectedRange().location
+            let position = lspPosition(for: location, in: tv.string as NSString)
+            let url = buffer.url
+            Task { @MainActor [weak self] in
+                guard let self, let list = await lsp.completion(at: position, in: url),
+                      !list.items.isEmpty else { return }
+                var seen = Set<String>()
+                var words: [String] = []
+                for item in list.items {
+                    let w = item.insertText ?? item.label
+                    guard !w.isEmpty, !seen.contains(w) else { continue }
+                    seen.insert(w)
+                    words.append(w)
+                }
+                self.completionWords = Array(words.prefix(200))
+                guard !self.completionWords.isEmpty, self.textView === tv else { return }
+                tv.complete(nil)
+            }
+        }
+
+        /// Convert a UTF-16 offset into a 0-based LSP line/character position.
+        private func lspPosition(for location: Int, in s: NSString) -> LSP.Position {
+            var line = 0, lineStart = 0
+            var i = 0
+            let limit = min(location, s.length)
+            while i < limit {
+                if s.character(at: i) == unichar(10) { line += 1; lineStart = i + 1 }
+                i += 1
+            }
+            return LSP.Position(line: line, character: location - lineStart)
         }
 
         func scheduleRecompute() {

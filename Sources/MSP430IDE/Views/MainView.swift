@@ -60,6 +60,7 @@ struct EditorPane: View {
 struct EditorPaneContent: View {
     let url: URL
     @ObservedObject var buffer: TextBuffer
+    @EnvironmentObject var appState: AppState
     @State private var gutter = GutterState()
     // Preview/Source choice is per-file (the pane is now shared across tabs,
     // so a single Bool would bleed between files).
@@ -85,7 +86,7 @@ struct EditorPaneContent: View {
             } else {
                 HStack(spacing: 0) {
                     GutterView(state: gutter, url: url)
-                    CodeEditorView(buffer: buffer, gutter: gutter)
+                    CodeEditorView(buffer: buffer, gutter: gutter, lsp: appState.lsp)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
