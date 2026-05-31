@@ -36,5 +36,15 @@
     <true/>
     <key>NSSupportsSuddenTermination</key>
     <true/>
+    <!-- macOS 26 / Swift 6 strict executor checking traps in
+         swift_task_isCurrentExecutor (e.g. inside SwiftUI Button actions and
+         segmented-control layout) even when on the main thread. The legacy
+         mode uses the simple comparison that returns correctly without
+         crashing. -->
+    <key>LSEnvironment</key>
+    <dict>
+        <key>SWIFT_IS_CURRENT_EXECUTOR_LEGACY_MODE_OVERRIDE</key>
+        <string>legacy</string>
+    </dict>
 </dict>
 </plist>
