@@ -889,6 +889,14 @@ final class AppState: ObservableObject {
 
     func appendDebugConsole(_ s: String) { debugConsole += s }
 
+    /// True when the breakpoint at file:line was accepted by the hardware debugger.
+    /// Returns false when not in a debug session (so gutter always shows full dots
+    /// when no session is active — the "unconfirmed" state only matters live).
+    func isBreakpointConfirmed(file: URL, line: Int) -> Bool {
+        guard isDebugging else { return true }
+        return gdbBreakpointMap["\(file.path):\(line)"] != nil
+    }
+
     func toggleBreakpoint(file: URL, line: Int) {
         var lines = breakpoints[file] ?? []
         let key = "\(file.path):\(line)"
@@ -909,9 +917,13 @@ final class AppState: ObservableObject {
             if let client = gdbClient {
                 Task { @MainActor [weak self] in
                     guard let self else { return }
-                    if let result = try? await client.send("-break-insert -f \(file.path):\(line)"),
-                       let bkptNo = result["bkpt"]?["number"]?.string.flatMap(Int.init) {
-                        self.gdbBreakpointMap[key] = bkptNo
+                    do {
+                        let result = try await client.send("-break-insert -f \(file.path):\(line)")
+                        if let bkptNo = result["bkpt"]?["number"]?.string.flatMap(Int.init) {
+                            self.gdbBreakpointMap[key] = bkptNo
+                        }
+                    } catch {
+                        self.appendDebugConsole("⚠ Breakpoint \(file.lastPathComponent):\(line) not set: \(error.localizedDescription)\n")
                     }
                 }
             }
@@ -999,15 +1011,27 @@ final class AppState: ObservableObject {
             try await client.send("-target-select remote :2000")
             appendDebugConsole("→ Target connected\n")
 
-            // Push existing breakpoints to GDB
+            // Push existing breakpoints to GDB.
+            // MSP430 devices have hardware-only breakpoints (no Flash patching).
+            // Basic EEM (e.g. G2553) provides 2; Enhanced EEM up to 8.
+            // Failures are logged rather than silently swallowed.
             gdbBreakpointMap = [:]
+            var hwLimitHit = false
             for (url, lines) in breakpoints {
                 for line in lines.sorted() {
-                    if let result = try? await client.send("-break-insert -f \(url.path):\(line)"),
-                       let bkptNo = result["bkpt"]?["number"]?.string.flatMap(Int.init) {
-                        gdbBreakpointMap["\(url.path):\(line)"] = bkptNo
+                    do {
+                        let result = try await client.send("-break-insert -f \(url.path):\(line)")
+                        if let bkptNo = result["bkpt"]?["number"]?.string.flatMap(Int.init) {
+                            gdbBreakpointMap["\(url.path):\(line)"] = bkptNo
+                        }
+                    } catch {
+                        hwLimitHit = true
+                        appendDebugConsole("⚠ Breakpoint \(url.lastPathComponent):\(line) not set: \(error.localizedDescription)\n")
                     }
                 }
+            }
+            if hwLimitHit {
+                appendDebugConsole("⚠ Hardware breakpoint limit reached. MSP430 Basic EEM provides 2 breakpoints; Enhanced EEM up to 8.\n")
             }
 
             debugSessionState = .running
