@@ -41,7 +41,7 @@ struct GutterView: View {
                             .padding(.leading, 2)
                     } else if isBkpt {
                         let confirmed = appState.isBreakpointConfirmed(file: url ?? URL(fileURLWithPath: ""), line: line.number)
-                        Image(systemName: confirmed ? "circle.fill" : "circle")
+                        Image(systemName: confirmed ? "octagon.fill" : "octagon")
                             .font(.system(size: 9))
                             .foregroundStyle(.red)
                             .frame(width: 12, height: 12)
@@ -57,7 +57,7 @@ struct GutterView: View {
                     }
                     Text("\(line.number)")
                         .font(.system(size: 10.5, weight: sev != nil ? .semibold : .regular, design: .monospaced))
-                        .foregroundStyle(isCurrent ? Color.yellow : (isBkpt ? Color.red : (sev != nil ? color(for: sev!) : Color(nsColor: .tertiaryLabelColor))))
+                        .foregroundStyle(isCurrent ? Color.yellow : (sev != nil ? color(for: sev!) : Color(nsColor: .tertiaryLabelColor)))
                         .monospacedDigit()
                         .frame(width: state.width - 6, alignment: .trailing)
                 }
