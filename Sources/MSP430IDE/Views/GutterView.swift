@@ -24,13 +24,28 @@ struct GutterView: View {
 
     var body: some View {
         let diagMap = diagnosticsByLine
+        let bkptSet = url.flatMap { appState.breakpoints[$0] } ?? []
         ZStack(alignment: .topLeading) {
             Color(nsColor: .textBackgroundColor)
 
             ForEach(state.visibleLines) { line in
+                let isCurrent = appState.debugCurrentFile == url && appState.debugCurrentLine == line.number
+                let isBkpt = bkptSet.contains(line.number)
                 let sev = diagMap[line.number]
                 ZStack(alignment: .leading) {
-                    if let sev {
+                    if isCurrent {
+                        Image(systemName: "arrowtriangle.right.fill")
+                            .font(.system(size: 9))
+                            .foregroundStyle(.yellow)
+                            .frame(width: 12, height: 12)
+                            .padding(.leading, 2)
+                    } else if isBkpt {
+                        Image(systemName: "circle.fill")
+                            .font(.system(size: 9))
+                            .foregroundStyle(.red)
+                            .frame(width: 12, height: 12)
+                            .padding(.leading, 2)
+                    } else if let sev {
                         Image(systemName: gutterIcon(for: sev))
                             .font(.system(size: 9, weight: .bold))
                             .foregroundStyle(color(for: sev))
@@ -40,7 +55,7 @@ struct GutterView: View {
                     }
                     Text("\(line.number)")
                         .font(.system(size: 10.5, weight: sev != nil ? .semibold : .regular, design: .monospaced))
-                        .foregroundStyle(sev != nil ? color(for: sev!) : Color(nsColor: .tertiaryLabelColor))
+                        .foregroundStyle(isCurrent ? Color.yellow : (isBkpt ? Color.red : (sev != nil ? color(for: sev!) : Color(nsColor: .tertiaryLabelColor))))
                         .monospacedDigit()
                         .frame(width: state.width - 6, alignment: .trailing)
                 }
@@ -54,6 +69,18 @@ struct GutterView: View {
         .overlay(alignment: .trailing) {
             Divider()
         }
+        .cursor(.pointingHand)
+        .gesture(
+            DragGesture(minimumDistance: 0, coordinateSpace: .local)
+                .onEnded { val in handleGutterClick(at: val.location.y) }
+        )
+    }
+
+    private func handleGutterClick(at y: CGFloat) {
+        guard let url else { return }
+        guard let closest = state.visibleLines.min(by: { abs($0.y - y) < abs($1.y - y) }),
+              abs(closest.y - y) < 12 else { return }
+        appState.toggleBreakpoint(file: url, line: closest.number)
     }
 
     private var diagnosticsByLine: [Int: Diagnostic.Severity] {

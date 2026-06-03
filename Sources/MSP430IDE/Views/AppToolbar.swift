@@ -50,6 +50,49 @@ struct AppToolbar: ToolbarContent {
             }
             .disabled(appState.project == nil || appState.isFlashing)
             .help("Flash to device (⌘R)")
+
+            // Debug controls
+            if appState.isDebugging {
+                Button {
+                    Task { await appState.stopDebugging() }
+                } label: {
+                    Label("Stop", systemImage: "stop.fill")
+                }
+                .foregroundStyle(.red)
+                .help("Stop debugging (⌘⇧D)")
+
+                if appState.debugSessionState == .stopped {
+                    Button { appState.debugContinue() } label: {
+                        Label("Continue", systemImage: "play.fill")
+                    }
+                    .help("Continue (F5)")
+                    Button { appState.debugStepOver() } label: {
+                        Label("Step Over", systemImage: "arrow.right.to.line")
+                    }
+                    .help("Step Over (F6)")
+                    Button { appState.debugStepIn() } label: {
+                        Label("Step In", systemImage: "arrow.turn.down.right")
+                    }
+                    .help("Step In (F7)")
+                    Button { appState.debugStepOut() } label: {
+                        Label("Step Out", systemImage: "arrow.turn.up.right")
+                    }
+                    .help("Step Out (F8)")
+                } else if appState.debugSessionState == .running {
+                    Button { appState.debugPause() } label: {
+                        Label("Pause", systemImage: "pause.fill")
+                    }
+                    .help("Pause")
+                }
+            } else {
+                Button {
+                    Task { await appState.startDebugging() }
+                } label: {
+                    Label("Debug", systemImage: "ant.fill")
+                }
+                .disabled(appState.project == nil || appState.isBuilding || appState.isFlashing)
+                .help("Start debugger (⌘D)")
+            }
         }
     }
 }

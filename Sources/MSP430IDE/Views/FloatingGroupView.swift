@@ -16,6 +16,7 @@ struct FloatingGroupView: View {
                 case .console:  ConsoleView()
                 case .problems: ProblemsView()
                 case .fileTree: FileTreeView()
+                case .debugger: DebuggerView()
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
