@@ -17,6 +17,7 @@ struct DockRegionView: View {
                 case .console:  ConsoleView()
                 case .problems: ProblemsView()
                 case .fileTree: FileTreeView()
+                case .debugger: DebuggerView()
                 case .none:     Color(nsColor: .textBackgroundColor)
                 }
             }

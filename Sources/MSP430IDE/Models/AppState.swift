@@ -870,6 +870,272 @@ final class AppState: ObservableObject {
         refreshDisplayedDiagnostics()
     }
 
+    // MARK: - Debugger
+
+    @Published var debugSessionState: DebugSessionState = .idle
+    @Published var breakpoints: [URL: Set<Int>] = [:]
+    @Published var debugCurrentFile: URL? = nil
+    @Published var debugCurrentLine: Int? = nil
+    @Published var debugStack: [StackFrame] = []
+    @Published var debugLocals: [LocalVariable] = []
+    @Published var debugConsole: String = ""
+    @Published var isDebugging: Bool = false
+
+    var onDebuggerStopped: (() -> Void)?
+
+    private var gdbClient: GDBClient?
+    private var mspdebugProcess: Process?
+    private var gdbBreakpointMap: [String: Int] = [:]  // "path:line" → GDB bkpt#
+
+    func appendDebugConsole(_ s: String) { debugConsole += s }
+
+    func toggleBreakpoint(file: URL, line: Int) {
+        var lines = breakpoints[file] ?? []
+        let key = "\(file.path):\(line)"
+        if lines.contains(line) {
+            lines.remove(line)
+            if lines.isEmpty { breakpoints.removeValue(forKey: file) } else { breakpoints[file] = lines }
+            // Remove from live GDB session if active
+            if let bkptNo = gdbBreakpointMap.removeValue(forKey: key) {
+                let client = gdbClient
+                Task {
+                    _ = try? await client?.send("-break-delete \(bkptNo)")
+                }
+            }
+        } else {
+            lines.insert(line)
+            breakpoints[file] = lines
+            // Add to live GDB session if active
+            if let client = gdbClient {
+                Task { @MainActor [weak self] in
+                    guard let self else { return }
+                    if let result = try? await client.send("-break-insert -f \(file.path):\(line)"),
+                       let bkptNo = result["bkpt"]?["number"]?.string.flatMap(Int.init) {
+                        self.gdbBreakpointMap[key] = bkptNo
+                    }
+                }
+            }
+        }
+    }
+
+    func jumpToBreakpoint(file: URL, line: Int) {
+        selectFile(file)
+        NotificationCenter.default.post(
+            name: .msp430EditorJumpToLine, object: nil,
+            userInfo: ["url": file, "line": line, "column": 1]
+        )
+    }
+
+    func startDebugging() async {
+        guard let proj = project, proj.mode == .native else {
+            appendDebugConsole("✗ Debugger requires native mode project.\n"); return
+        }
+        guard let gdbPath = toolchain.gdbPath else {
+            appendDebugConsole("✗ msp430-elf-gdb not found. Install msp430-elf-gcc toolchain.\n"); return
+        }
+        guard let mspdebugPath = toolchain.mspdebugPath else {
+            appendDebugConsole("✗ mspdebug not found.\n"); return
+        }
+        let elf = proj.buildDir.appendingPathComponent("\(proj.name).elf")
+        guard FileManager.default.fileExists(atPath: elf.path) else {
+            appendDebugConsole("✗ No ELF found at \(elf.path). Build first.\n"); return
+        }
+
+        debugSessionState = .starting
+        isDebugging = true
+        if !debugConsole.isEmpty { debugConsole += "\n" }
+        appendDebugConsole("────────────────────────────────────────\n")
+        appendDebugConsole("→ Starting debug session: \(proj.name) (\(proj.flash.driver))\n")
+
+        // Start mspdebug GDB stub
+        let srv = Process()
+        srv.executableURL = mspdebugPath
+        srv.arguments = [proj.flash.driver, "gdb"]
+        srv.currentDirectoryURL = proj.rootURL
+        if !proj.flash.env.isEmpty {
+            var env = ProcessInfo.processInfo.environment
+            for (k, v) in proj.flash.env { env[k] = v }
+            srv.environment = env
+        }
+        let srvOut = Pipe(); let srvErr = Pipe()
+        srv.standardOutput = srvOut; srv.standardError = srvErr
+        for pipe in [srvOut, srvErr] {
+            pipe.fileHandleForReading.readabilityHandler = { [weak self] h in
+                let d = h.availableData
+                guard !d.isEmpty, let t = String(data: d, encoding: .utf8) else { return }
+                Task { @MainActor [weak self] in self?.appendDebugConsole(t) }
+            }
+        }
+        do { try srv.run() } catch {
+            appendDebugConsole("✗ mspdebug failed: \(error.localizedDescription)\n")
+            await cleanupDebugSession(); return
+        }
+        mspdebugProcess = srv
+
+        // Wait for mspdebug GDB stub to be ready
+        try? await Task.sleep(nanoseconds: 1_500_000_000)
+
+        // Start GDB
+        let client = GDBClient()
+        gdbClient = client
+        await client.setCallbacks(
+            onStopped: { @Sendable [weak self] event in
+                Task { @MainActor [weak self] in self?.handleDebugStopped(event) }
+            },
+            onRunning: { @Sendable [weak self] in
+                Task { @MainActor [weak self] in self?.handleDebugRunning() }
+            },
+            onOutput: { @Sendable [weak self] text in
+                Task { @MainActor [weak self] in self?.appendDebugConsole(text) }
+            },
+            onExited: { @Sendable [weak self] in
+                Task { @MainActor [weak self] in self?.handleDebugExited() }
+            }
+        )
+
+        do {
+            try await client.start(gdbPath: gdbPath, elfPath: elf, workingDir: proj.rootURL)
+            appendDebugConsole("→ GDB connected\n")
+            try await client.send("-target-select remote :2000")
+            appendDebugConsole("→ Target connected\n")
+
+            // Push existing breakpoints to GDB
+            gdbBreakpointMap = [:]
+            for (url, lines) in breakpoints {
+                for line in lines.sorted() {
+                    if let result = try? await client.send("-break-insert -f \(url.path):\(line)"),
+                       let bkptNo = result["bkpt"]?["number"]?.string.flatMap(Int.init) {
+                        gdbBreakpointMap["\(url.path):\(line)"] = bkptNo
+                    }
+                }
+            }
+
+            debugSessionState = .running
+            try await client.send("-exec-run")
+        } catch {
+            appendDebugConsole("✗ Debug session failed: \(error.localizedDescription)\n")
+            await cleanupDebugSession()
+        }
+    }
+
+    func stopDebugging() async {
+        let client = gdbClient
+        _ = try? await client?.send("-gdb-exit")
+        await cleanupDebugSession()
+    }
+
+    func debugContinue() {
+        let client = gdbClient
+        Task { _ = try? await client?.send("-exec-continue") }
+    }
+
+    func debugPause() {
+        let client = gdbClient
+        Task { _ = try? await client?.send("-exec-interrupt") }
+    }
+
+    func debugStepIn() {
+        let client = gdbClient
+        Task { _ = try? await client?.send("-exec-step") }
+    }
+
+    func debugStepOver() {
+        let client = gdbClient
+        Task { _ = try? await client?.send("-exec-next") }
+    }
+
+    func debugStepOut() {
+        let client = gdbClient
+        Task { _ = try? await client?.send("-exec-finish") }
+    }
+
+    func selectDebugFrame(_ frame: StackFrame) {
+        let client = gdbClient
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            _ = try? await client?.send("-stack-select-frame \(frame.id)")
+            await self.refreshDebugState()
+            if let url = frame.file, let line = frame.line {
+                self.selectFile(url)
+                NotificationCenter.default.post(
+                    name: .msp430EditorJumpToLine, object: nil,
+                    userInfo: ["url": url, "line": line, "column": 1]
+                )
+            }
+        }
+    }
+
+    private func handleDebugStopped(_ event: StopEvent) {
+        debugSessionState = .stopped
+        if let frame = event.frame {
+            debugCurrentFile = frame.file
+            debugCurrentLine = frame.line
+            if let url = frame.file, let line = frame.line {
+                selectFile(url)
+                NotificationCenter.default.post(
+                    name: .msp430EditorJumpToLine, object: nil,
+                    userInfo: ["url": url, "line": line, "column": 1]
+                )
+            }
+        }
+        Task { @MainActor [weak self] in await self?.refreshDebugState() }
+        onDebuggerStopped?()
+    }
+
+    private func handleDebugRunning() {
+        debugSessionState = .running
+    }
+
+    private func handleDebugExited() {
+        Task { @MainActor [weak self] in await self?.cleanupDebugSession() }
+    }
+
+    private func refreshDebugState() async {
+        // Capture client on main actor before leaving it
+        let client = gdbClient
+        guard let client else { return }
+        // Fetch stack frames
+        if let stackResult = try? await client.send("-stack-list-frames"),
+           let stackList = stackResult["stack"]?.array {
+            let frames: [StackFrame] = stackList.compactMap { item in
+                guard let frameDict = item.dict?["frame"]?.dict else { return nil }
+                return StackFrame.from(miDict: frameDict)
+            }
+            debugStack = frames
+        }
+        // Fetch locals
+        if let localsResult = try? await client.send("-stack-list-locals --simple-values"),
+           let localsList = localsResult["locals"]?.array {
+            let locals: [LocalVariable] = localsList.compactMap { item -> LocalVariable? in
+                let dict: [String: GDBMIValue]?
+                if case .tuple(let d) = item {
+                    dict = d
+                } else {
+                    dict = item.dict
+                }
+                guard let d = dict, let name = d["name"]?.string else { return nil }
+                let value = d["value"]?.string ?? ""
+                let type_ = d["type"]?.string
+                return LocalVariable(name: name, value: value, type: type_)
+            }
+            debugLocals = locals
+        }
+    }
+
+    private func cleanupDebugSession() async {
+        await gdbClient?.stop()
+        gdbClient = nil
+        mspdebugProcess?.terminate()
+        mspdebugProcess = nil
+        gdbBreakpointMap = [:]
+        debugSessionState = .idle
+        isDebugging = false
+        debugCurrentFile = nil
+        debugCurrentLine = nil
+        debugStack = []
+        debugLocals = []
+    }
+
     /// Recompute the displayed `diagnostics`/`diagnosticsInOrder` by merging
     /// build and live (clangd) diagnostics. For files clangd is tracking,
     /// its diagnostics win (they reflect the current buffer); other files

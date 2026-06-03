@@ -35,6 +35,11 @@ struct MSP430IDEApp: App {
                             panels?.showPanel(.problems)
                         }
                     }
+                    appState.onDebuggerStopped = { [weak panels] in
+                        Task { @MainActor [weak panels] in
+                            panels?.showPanel(.debugger)
+                        }
+                    }
                 }
         }
         .windowToolbarStyle(.unified)
@@ -143,6 +148,48 @@ struct MSP430IDEApp: App {
                     }
                 }
                 .disabled(appState.project == nil)
+            }
+
+            CommandMenu("Debug") {
+                Button("Start Debugging") {
+                    Task { await appState.startDebugging() }
+                }
+                .keyboardShortcut("d", modifiers: .command)
+                .disabled(appState.project == nil || appState.isDebugging)
+
+                Button("Stop Debugging") {
+                    Task { await appState.stopDebugging() }
+                }
+                .keyboardShortcut("d", modifiers: [.command, .shift])
+                .disabled(!appState.isDebugging)
+
+                Divider()
+
+                Button("Continue") {
+                    appState.debugContinue()
+                }
+                .disabled(appState.debugSessionState != .stopped)
+
+                Button("Step Over") {
+                    appState.debugStepOver()
+                }
+                .disabled(appState.debugSessionState != .stopped)
+
+                Button("Step In") {
+                    appState.debugStepIn()
+                }
+                .disabled(appState.debugSessionState != .stopped)
+
+                Button("Step Out") {
+                    appState.debugStepOut()
+                }
+                .disabled(appState.debugSessionState != .stopped)
+
+                Divider()
+
+                Button("Show Debugger Panel") {
+                    panels.showPanel(.debugger)
+                }
             }
         }
     }
