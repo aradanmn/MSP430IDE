@@ -172,3 +172,16 @@ final class TextBuffer: ObservableObject, Identifiable {
     func markDirty() { isDirty = true }
     func markClean() { isDirty = false }
 }
+
+extension ProjectModel {
+    /// Hardware breakpoint slots from the on-chip EEM debug module.
+    /// Basic EEM (F1xx/F2xx/G2xx): 2. Enhanced/Full EEM (F4xx+): 8.
+    var hardwareBreakpointLimit: Int {
+        let m = mcu.lowercased()
+        if m.hasPrefix("msp430f4") { return 8 }
+        if m.hasPrefix("msp430f5") { return 8 }
+        if m.hasPrefix("msp430f6") { return 8 }
+        if m.hasPrefix("msp430fr") { return 8 }
+        return 2  // Basic EEM: F1xx, F2xx, G2xx
+    }
+}

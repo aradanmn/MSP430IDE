@@ -186,10 +186,29 @@ struct DebuggerView: View {
         let allBkpts = appState.breakpoints.flatMap { url, lines in
             lines.sorted().map { (url, $0) }
         }.sorted { a, b in a.0.lastPathComponent < b.0.lastPathComponent || (a.0 == b.0 && a.1 < b.1) }
+        let limit = appState.project?.hardwareBreakpointLimit ?? 2
+        let count = appState.breakpointCount
 
-        return Group {
+        return VStack(spacing: 0) {
+            // Breakpoint count / limit header
+            HStack {
+                Text("\(count) of \(limit) hardware breakpoints used")
+                    .font(.system(size: 10))
+                    .foregroundStyle(count >= limit ? Color.orange : Color.secondary)
+                Spacer()
+                if let mcu = appState.project?.mcu {
+                    Text(mcu)
+                        .font(.system(size: 10, design: .monospaced))
+                        .foregroundStyle(.tertiary)
+                }
+            }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .background(Color(nsColor: .controlBackgroundColor))
+            Divider()
+
             if allBkpts.isEmpty {
-                Text("No breakpoints")
+                Text("Click in the gutter to set a breakpoint")
                     .foregroundStyle(.secondary)
                     .font(.caption)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -198,7 +217,7 @@ struct DebuggerView: View {
                     LazyVStack(alignment: .leading, spacing: 0) {
                         ForEach(allBkpts, id: \.1) { url, line in
                             HStack(spacing: 6) {
-                                Image(systemName: "circle.fill")
+                                Image(systemName: "octagon.fill")
                                     .font(.system(size: 8))
                                     .foregroundStyle(.red)
                                 Button {
