@@ -897,23 +897,30 @@ final class AppState: ObservableObject {
         return gdbBreakpointMap["\(file.path):\(line)"] != nil
     }
 
+    /// Total breakpoints set across all files.
+    var breakpointCount: Int { breakpoints.values.reduce(0) { $0 + $1.count } }
+
     func toggleBreakpoint(file: URL, line: Int) {
         var lines = breakpoints[file] ?? []
         let key = "\(file.path):\(line)"
         if lines.contains(line) {
+            // Remove breakpoint
             lines.remove(line)
             if lines.isEmpty { breakpoints.removeValue(forKey: file) } else { breakpoints[file] = lines }
-            // Remove from live GDB session if active
             if let bkptNo = gdbBreakpointMap.removeValue(forKey: key) {
                 let client = gdbClient
-                Task {
-                    _ = try? await client?.send("-break-delete \(bkptNo)")
-                }
+                Task { _ = try? await client?.send("-break-delete \(bkptNo)") }
             }
         } else {
+            // Add breakpoint — enforce hardware limit before inserting
+            let limit = project?.hardwareBreakpointLimit ?? 2
+            guard breakpointCount < limit else {
+                let mcu = project?.mcu ?? "this device"
+                statusMessage = "Breakpoint limit (\(limit)) reached for \(mcu)"
+                return
+            }
             lines.insert(line)
             breakpoints[file] = lines
-            // Add to live GDB session if active
             if let client = gdbClient {
                 Task { @MainActor [weak self] in
                     guard let self else { return }
@@ -923,7 +930,7 @@ final class AppState: ObservableObject {
                             self.gdbBreakpointMap[key] = bkptNo
                         }
                     } catch {
-                        self.appendDebugConsole("⚠ Breakpoint \(file.lastPathComponent):\(line) not set: \(error.localizedDescription)\n")
+                        self.appendDebugConsole("⚠ Breakpoint not set: \(error.localizedDescription)\n")
                     }
                 }
             }
@@ -1011,12 +1018,9 @@ final class AppState: ObservableObject {
             try await client.send("-target-select remote :2000")
             appendDebugConsole("→ Target connected\n")
 
-            // Push existing breakpoints to GDB.
-            // MSP430 devices have hardware-only breakpoints (no Flash patching).
-            // Basic EEM (e.g. G2553) provides 2; Enhanced EEM up to 8.
-            // Failures are logged rather than silently swallowed.
+            // Push breakpoints to GDB. The UI already caps them at the hardware
+            // limit, so failures here are unexpected — log them if they occur.
             gdbBreakpointMap = [:]
-            var hwLimitHit = false
             for (url, lines) in breakpoints {
                 for line in lines.sorted() {
                     do {
@@ -1025,13 +1029,9 @@ final class AppState: ObservableObject {
                             gdbBreakpointMap["\(url.path):\(line)"] = bkptNo
                         }
                     } catch {
-                        hwLimitHit = true
-                        appendDebugConsole("⚠ Breakpoint \(url.lastPathComponent):\(line) not set: \(error.localizedDescription)\n")
+                        appendDebugConsole("⚠ Breakpoint \(url.lastPathComponent):\(line) not armed: \(error.localizedDescription)\n")
                     }
                 }
-            }
-            if hwLimitHit {
-                appendDebugConsole("⚠ Hardware breakpoint limit reached. MSP430 Basic EEM provides 2 breakpoints; Enhanced EEM up to 8.\n")
             }
 
             debugSessionState = .running
