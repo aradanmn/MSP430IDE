@@ -3,6 +3,7 @@ import Foundation
 struct Toolchain: Equatable {
     var gccPath: URL?
     var mspdebugPath: URL?
+    var gdbPath: URL?
     var supportIncludePath: URL?
 
     var isReady: Bool { gccPath != nil && mspdebugPath != nil }
@@ -11,6 +12,7 @@ struct Toolchain: Equatable {
         Toolchain(
             gccPath: findBinary("msp430-elf-gcc"),
             mspdebugPath: findBinary("mspdebug"),
+            gdbPath: findBinary("msp430-elf-gdb") ?? findBinary("gdb"),
             supportIncludePath: findSupportInclude()
         )
     }
