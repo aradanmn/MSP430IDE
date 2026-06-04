@@ -1034,6 +1034,12 @@ final class AppState: ObservableObject {
             try await client.send("-target-select remote :2000")
             appendDebugConsole("→ Target connected\n")
 
+            // Download the program to flash. A remote MSP430 target already
+            // holds the program; we (re)load to guarantee the chip matches the
+            // ELF we have symbols for.
+            appendDebugConsole("→ Loading program into flash…\n")
+            _ = try await client.send("-target-download")
+
             // Push breakpoints to GDB. The UI already caps them at the hardware
             // limit, so failures here are unexpected — log them if they occur.
             gdbBreakpointMap = [:]
@@ -1050,8 +1056,11 @@ final class AppState: ObservableObject {
                 }
             }
 
+            // Remote targets are started with `continue` (the program is
+            // already on-chip, halted at the reset vector) — not `run`, which
+            // is for launching a local process.
             debugSessionState = .running
-            try await client.send("-exec-run")
+            try await client.send("-exec-continue")
         } catch {
             appendDebugConsole("✗ Debug session failed: \(error.localizedDescription)\n")
             await cleanupDebugSession()
