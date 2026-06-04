@@ -890,7 +890,10 @@ final class AppState: ObservableObject {
     private var mspdebugProcess: Process?
     private var gdbBreakpointMap: [String: Int] = [:]  // "path:line" → GDB bkpt#
 
-    func appendDebugConsole(_ s: String) { debugConsole += s }
+    func appendDebugConsole(_ s: String) {
+        debugConsole += s
+        appendConsole(s)   // surface debug output in the visible Console panel
+    }
 
     /// True when the breakpoint at file:line was accepted by the hardware debugger.
     /// Returns false when not in a debug session (so gutter always shows full dots
@@ -949,18 +952,27 @@ final class AppState: ObservableObject {
     }
 
     func startDebugging() async {
-        guard let proj = project, proj.mode == .native else {
-            appendDebugConsole("✗ Debugger requires native mode project.\n"); return
+        guard let proj = project else {
+            appendConsole("✗ No active project to debug.\n"); statusMessage = "No active project"; return
+        }
+        guard proj.mode == .native else {
+            appendConsole("✗ Debugging requires a native-mode project. Switch via Build ▸ Build Mode ▸ Native, then Build.\n")
+            statusMessage = "Debugger needs native mode"
+            return
         }
         guard let gdbPath = toolchain.gdbPath else {
-            appendDebugConsole("✗ msp430-elf-gdb not found. Install msp430-elf-gcc toolchain.\n"); return
+            appendConsole("✗ msp430-elf-gdb not found. Install the msp430-elf-gcc toolchain.\n")
+            statusMessage = "msp430-elf-gdb not found"
+            return
         }
         guard let mspdebugPath = toolchain.mspdebugPath else {
-            appendDebugConsole("✗ mspdebug not found.\n"); return
+            appendConsole("✗ mspdebug not found.\n"); statusMessage = "mspdebug not found"; return
         }
         let elf = proj.buildDir.appendingPathComponent("\(proj.name).elf")
         guard FileManager.default.fileExists(atPath: elf.path) else {
-            appendDebugConsole("✗ No ELF found at \(elf.path). Build first.\n"); return
+            appendConsole("✗ No build output at \(elf.path). Build (⌘B) first.\n")
+            statusMessage = "Build before debugging"
+            return
         }
 
         debugSessionState = .starting

@@ -42,10 +42,10 @@ struct GutterView: View {
                     } else if isBkpt {
                         let confirmed = appState.isBreakpointConfirmed(file: url ?? URL(fileURLWithPath: ""), line: line.number)
                         Image(systemName: confirmed ? "octagon.fill" : "octagon")
-                            .font(.system(size: 9))
+                            .font(.system(size: 12, weight: .semibold))
                             .foregroundStyle(.red)
-                            .frame(width: 12, height: 12)
-                            .padding(.leading, 2)
+                            .frame(width: 14, height: 14)
+                            .padding(.leading, 1)
                             .help(confirmed ? "Breakpoint" : "Breakpoint (hardware limit — not armed)")
                     } else if let sev {
                         Image(systemName: gutterIcon(for: sev))
