@@ -11,15 +11,8 @@ struct FloatingGroupView: View {
     var body: some View {
         VStack(spacing: 0) {
             tabStrip
-            Group {
-                switch group.active {
-                case .console:  ConsoleView()
-                case .problems: ProblemsView()
-                case .fileTree: FileTreeView()
-                case .debugger: DebuggerView()
-                }
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            PanelContentView(id: group.active)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .frame(minWidth: 240, minHeight: 160)
     }

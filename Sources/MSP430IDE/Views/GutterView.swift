@@ -105,19 +105,6 @@ struct GutterView: View {
             .joined(separator: "\n")
     }
 
-    private func gutterIcon(for sev: Diagnostic.Severity) -> String {
-        switch sev {
-        case .error:   return "xmark.circle.fill"
-        case .warning: return "exclamationmark.triangle.fill"
-        case .note:    return "info.circle.fill"
-        }
-    }
-
-    private func color(for sev: Diagnostic.Severity) -> Color {
-        switch sev {
-        case .error:   return .red
-        case .warning: return .yellow
-        case .note:    return .blue
-        }
-    }
+    private func gutterIcon(for sev: Diagnostic.Severity) -> String { sev.iconName }
+    private func color(for sev: Diagnostic.Severity) -> Color { sev.color }
 }

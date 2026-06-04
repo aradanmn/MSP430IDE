@@ -174,6 +174,15 @@ final class TextBuffer: ObservableObject, Identifiable {
 }
 
 extension ProjectModel {
+    /// Returns the appropriate build system for this project's mode.
+    /// The single dispatch point — AppState.build/flash/clean never switch on mode.
+    func buildSystem(toolchain: Toolchain, configName: String) -> any BuildSystem {
+        switch mode {
+        case .native:   return NativeBuildSystem(toolchain: toolchain, project: self, configName: configName)
+        case .external: return ExternalBuildSystem(project: self)
+        }
+    }
+
     /// Hardware breakpoint slots from the on-chip EEM debug module.
     /// Basic EEM (F1xx/F2xx/G2xx): 2. Enhanced/Full EEM (F4xx+): 8.
     var hardwareBreakpointLimit: Int {

@@ -87,19 +87,6 @@ struct DiagnosticRow: View {
         return diag.file.lastPathComponent
     }
 
-    private var iconName: String {
-        switch diag.severity {
-        case .error:   return "xmark.circle.fill"
-        case .warning: return "exclamationmark.triangle.fill"
-        case .note:    return "info.circle.fill"
-        }
-    }
-
-    private var color: Color {
-        switch diag.severity {
-        case .error:   return .red
-        case .warning: return .yellow
-        case .note:    return .blue
-        }
-    }
+    private var iconName: String { diag.severity.iconName }
+    private var color: Color { diag.severity.color }
 }

@@ -118,21 +118,6 @@ private struct TabItem: View {
         }
     }
 
-    private var iconName: String {
-        switch url.pathExtension.lowercased() {
-        case "c": return "c.square"
-        case "h": return "h.square"
-        case "s", "asm": return "s.square"
-        default: return "doc"
-        }
-    }
-
-    private var iconColor: Color {
-        switch url.pathExtension.lowercased() {
-        case "c": return .blue
-        case "h": return .purple
-        case "s", "asm": return .orange
-        default: return .secondary
-        }
-    }
+    private var iconName: String { url.fileIconName }
+    private var iconColor: Color { url.fileIconColor }
 }

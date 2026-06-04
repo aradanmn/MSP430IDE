@@ -437,15 +437,8 @@ struct TearLivePreview: View {
             .frame(height: 26)
             .background(.bar)
             Divider()
-            Group {
-                switch id {
-                case .console:  ConsoleView()
-                case .problems: ProblemsView()
-                case .fileTree: FileTreeView()
-                case .debugger: DebuggerView()
-                }
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            PanelContentView(id: id)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .background(Color(nsColor: .textBackgroundColor))
         .clipShape(RoundedRectangle(cornerRadius: 8))
