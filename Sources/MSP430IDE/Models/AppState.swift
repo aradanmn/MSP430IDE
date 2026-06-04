@@ -880,12 +880,15 @@ final class AppState: ObservableObject {
     @Published var debugLocals: [LocalVariable] = []
     @Published var debugConsole: String = ""
     @Published var isDebugging: Bool = false
+    @Published var debugRegisters: [RegisterValue] = []
+    @Published var debugPanelTab: Int = 0
 
     var onDebuggerStopped: (() -> Void)?
 
     private var gdbClient: GDBClient?
     private var mspdebugProcess: Process?
     private var gdbBreakpointMap: [String: Int] = [:]  // "path:line" → GDB bkpt#
+    private var cachedRegisterNames: [String]? = nil
 
     func appendDebugConsole(_ s: String) { debugConsole += s }
 
@@ -1091,6 +1094,7 @@ final class AppState: ObservableObject {
 
     private func handleDebugStopped(_ event: StopEvent) {
         debugSessionState = .stopped
+        debugPanelTab = 0   // auto-select Registers tab
         if let frame = event.frame {
             debugCurrentFile = frame.file
             debugCurrentLine = frame.line
@@ -1144,6 +1148,28 @@ final class AppState: ObservableObject {
             }
             debugLocals = locals
         }
+        // Fetch register names once per session, then values on every stop
+        if cachedRegisterNames == nil,
+           let namesResult = try? await client.send("-data-list-register-names"),
+           let namesArray = namesResult["register-names"]?.array {
+            cachedRegisterNames = namesArray.compactMap { $0.string }
+        }
+        if let names = cachedRegisterNames,
+           let valResult = try? await client.send("-data-list-register-values x"),
+           let valArray = valResult["register-values"]?.array {
+            let regs: [RegisterValue] = valArray.compactMap { item -> RegisterValue? in
+                let d: [String: GDBMIValue]?
+                if case .tuple(let dict) = item { d = dict } else { d = item.dict }
+                guard let d,
+                      let numStr = d["number"]?.string, let num = Int(numStr),
+                      let valStr = d["value"]?.string,
+                      num < names.count, !names[num].isEmpty else { return nil }
+                let stripped = valStr.hasPrefix("0x") ? String(valStr.dropFirst(2)) : valStr
+                let v = UInt32(stripped, radix: valStr.hasPrefix("0x") ? 16 : 10) ?? 0
+                return RegisterValue(number: num, name: names[num], value: v)
+            }.sorted { $0.number < $1.number }
+            debugRegisters = regs
+        }
     }
 
     private func cleanupDebugSession() async {
@@ -1152,12 +1178,15 @@ final class AppState: ObservableObject {
         mspdebugProcess?.terminate()
         mspdebugProcess = nil
         gdbBreakpointMap = [:]
+        cachedRegisterNames = nil
         debugSessionState = .idle
         isDebugging = false
         debugCurrentFile = nil
         debugCurrentLine = nil
         debugStack = []
         debugLocals = []
+        debugRegisters = []
+        debugPanelTab = 0
     }
 
     /// Recompute the displayed `diagnostics`/`diagnosticsInOrder` by merging

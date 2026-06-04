@@ -35,6 +35,34 @@ struct LocalVariable: Identifiable, Equatable, Sendable {
     let type: String?
 }
 
+struct RegisterValue: Identifiable, Equatable, Sendable {
+    var id: Int { number }
+    let number: Int
+    let name: String
+    let value: UInt32
+
+    var hexString: String { String(format: "0x%04X", value) }
+
+    private static let aliases = ["PC","SP","SR","CG","R4","R5","R6","R7","R8","R9","R10","R11","R12","R13","R14","R15"]
+
+    var displayName: String {
+        number < Self.aliases.count ? Self.aliases[number] : name.uppercased()
+    }
+
+    /// SR (R2) flag breakdown — nil for all other registers.
+    var srFlags: [(name: String, set: Bool)]? {
+        guard number == 2 else { return nil }
+        return [
+            ("C",      value & (1 << 0) != 0),
+            ("Z",      value & (1 << 1) != 0),
+            ("N",      value & (1 << 2) != 0),
+            ("GIE",    value & (1 << 3) != 0),
+            ("CPUOFF", value & (1 << 4) != 0),
+            ("V",      value & (1 << 8) != 0),
+        ]
+    }
+}
+
 struct StopEvent: Sendable {
     enum Reason: Sendable {
         case breakpointHit(Int)   // GDB breakpoint number
