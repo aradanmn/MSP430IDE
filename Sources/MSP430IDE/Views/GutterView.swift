@@ -41,12 +41,24 @@ struct GutterView: View {
                             .padding(.leading, 2)
                     } else if isBkpt {
                         let confirmed = appState.isBreakpointConfirmed(file: url ?? URL(fileURLWithPath: ""), line: line.number)
-                        Image(systemName: confirmed ? "octagon.fill" : "octagon")
-                            .font(.system(size: 12, weight: .semibold))
-                            .foregroundStyle(.red)
-                            .frame(width: 14, height: 14)
-                            .padding(.leading, 1)
-                            .help(confirmed ? "Breakpoint" : "Breakpoint (hardware limit — not armed)")
+                        ZStack {
+                            if confirmed {
+                                // Red fill + white inner ring = recognisable stop-sign shape
+                                Image(systemName: "octagon.fill")
+                                    .foregroundStyle(.red)
+                                Image(systemName: "octagon")
+                                    .foregroundStyle(.white)
+                                    .scaleEffect(0.68)
+                            } else {
+                                // Hollow octagon, dimmed — hardware slot not available
+                                Image(systemName: "octagon")
+                                    .foregroundStyle(Color.red.opacity(0.45))
+                            }
+                        }
+                        .font(.system(size: 13, weight: .semibold))
+                        .frame(width: 14, height: 14)
+                        .padding(.leading, 1)
+                        .help(confirmed ? "Breakpoint" : "Breakpoint (hardware limit — not armed)")
                     } else if let sev {
                         Image(systemName: gutterIcon(for: sev))
                             .font(.system(size: 9, weight: .bold))
