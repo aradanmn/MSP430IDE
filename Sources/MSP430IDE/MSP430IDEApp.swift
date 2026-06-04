@@ -40,6 +40,12 @@ struct MSP430IDEApp: App {
                             panels?.showPanel(.debugger)
                         }
                     }
+                    // Show the debugger panel only while a session is active.
+                    appState.onDebugActiveChanged = { [weak panels] active in
+                        Task { @MainActor [weak panels] in
+                            if active { panels?.reveal(.debugger) } else { panels?.hide(.debugger) }
+                        }
+                    }
                 }
         }
         .windowToolbarStyle(.unified)

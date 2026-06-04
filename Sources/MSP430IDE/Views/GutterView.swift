@@ -71,7 +71,9 @@ struct GutterView: View {
         .overlay(alignment: .trailing) {
             Divider()
         }
-        .cursor(.pointingHand)
+        .onHover { inside in
+            if inside { NSCursor.pointingHand.push() } else { NSCursor.pop() }
+        }
         .gesture(
             DragGesture(minimumDistance: 0, coordinateSpace: .local)
                 .onEnded { val in handleGutterClick(at: val.location.y) }

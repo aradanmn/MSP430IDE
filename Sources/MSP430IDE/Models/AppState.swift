@@ -882,6 +882,9 @@ final class AppState: ObservableObject {
     @Published var isDebugging: Bool = false
 
     var onDebuggerStopped: (() -> Void)?
+    /// Fired when a debug session starts (true) or ends (false), so the UI
+    /// can reveal/hide the debugger panel.
+    var onDebugActiveChanged: ((Bool) -> Void)?
 
     private var gdbClient: GDBClient?
     private var mspdebugProcess: Process?
@@ -962,6 +965,7 @@ final class AppState: ObservableObject {
 
         debugSessionState = .starting
         isDebugging = true
+        onDebugActiveChanged?(true)
         if !debugConsole.isEmpty { debugConsole += "\n" }
         appendDebugConsole("────────────────────────────────────────\n")
         appendDebugConsole("→ Starting debug session: \(proj.name) (\(proj.flash.driver))\n")
@@ -1154,6 +1158,7 @@ final class AppState: ObservableObject {
         gdbBreakpointMap = [:]
         debugSessionState = .idle
         isDebugging = false
+        onDebugActiveChanged?(false)
         debugCurrentFile = nil
         debugCurrentLine = nil
         debugStack = []

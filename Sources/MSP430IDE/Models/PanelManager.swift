@@ -63,6 +63,10 @@ final class PanelManager: ObservableObject {
     @Published var floatingGroups: [FloatingGroup] = []
     @Published private(set) var floatingPanels: Set<PanelID> = []
 
+    /// Panels that are configured but not currently shown (e.g. the debugger
+    /// before a session starts). Revealed on demand.
+    @Published private(set) var hiddenPanels: Set<PanelID> = [.debugger]
+
     weak var appState: AppState?
     weak var mainWindow: NSWindow?
 
@@ -91,7 +95,20 @@ final class PanelManager: ObservableObject {
 
     /// Panels currently docked at `edge`, in a stable order.
     func dockedPanels(at edge: DockEdge) -> [PanelID] {
-        PanelID.allCases.filter { !floatingPanels.contains($0) && (dockEdge[$0] ?? .bottom) == edge }
+        PanelID.allCases.filter {
+            !floatingPanels.contains($0) && !hiddenPanels.contains($0) && (dockEdge[$0] ?? .bottom) == edge
+        }
+    }
+
+    /// Show a previously hidden panel (e.g. the debugger when a session starts).
+    func reveal(_ id: PanelID) {
+        hiddenPanels.remove(id)
+        showPanel(id)
+    }
+
+    /// Hide a panel from the dock without changing its remembered edge.
+    func hide(_ id: PanelID) {
+        hiddenPanels.insert(id)
     }
 
     func hasPanels(at edge: DockEdge) -> Bool { !dockedPanels(at: edge).isEmpty }
