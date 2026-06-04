@@ -1037,8 +1037,24 @@ final class AppState: ObservableObject {
                 }
             }
 
-            debugSessionState = .running
-            try await client.send("-exec-run")
+            // Leave the CPU halted at the reset vector so the user can
+            // step from the very first instruction without needing a breakpoint.
+            debugSessionState = .stopped
+            debugPanelTab = 0
+            await refreshDebugState()
+            if let topFrame = debugStack.first {
+                debugCurrentFile = topFrame.file
+                debugCurrentLine = topFrame.line
+                if let url = topFrame.file, let line = topFrame.line {
+                    selectFile(url)
+                    NotificationCenter.default.post(
+                        name: .msp430EditorJumpToLine, object: nil,
+                        userInfo: ["url": url, "line": line, "column": 1]
+                    )
+                }
+            }
+            onDebuggerStopped?()
+            appendDebugConsole("→ Halted at entry — Continue to run, or use Step Instruction to trace\n")
         } catch {
             appendDebugConsole("✗ Debug session failed: \(error.localizedDescription)\n")
             await cleanupDebugSession()
@@ -1074,6 +1090,18 @@ final class AppState: ObservableObject {
     func debugStepOut() {
         let client = gdbClient
         Task { _ = try? await client?.send("-exec-finish") }
+    }
+
+    /// Step exactly one machine instruction, following calls into subroutines.
+    func debugStepInstruction() {
+        let client = gdbClient
+        Task { _ = try? await client?.send("-exec-stepi") }
+    }
+
+    /// Step exactly one machine instruction, stepping over calls (continues until they return).
+    func debugNextInstruction() {
+        let client = gdbClient
+        Task { _ = try? await client?.send("-exec-nexti") }
     }
 
     func selectDebugFrame(_ frame: StackFrame) {
