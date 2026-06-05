@@ -231,9 +231,14 @@ struct DebuggerView: View {
     }
 
     private var breakpointsPane: some View {
-        let allBkpts = appState.breakpoints.flatMap { url, lines in
-            lines.sorted().map { (url, $0) }
-        }.sorted { a, b in a.0.lastPathComponent < b.0.lastPathComponent || (a.0 == b.0 && a.1 < b.1) }
+        let allBkpts: [(URL, Int)] = appState.breakpoints
+            .flatMap { url, lines in lines.sorted().map { (url, $0) } }
+            .sorted { lhs, rhs in
+                if lhs.0.lastPathComponent != rhs.0.lastPathComponent {
+                    return lhs.0.lastPathComponent < rhs.0.lastPathComponent
+                }
+                return lhs.1 < rhs.1
+            }
         let limit = appState.project?.hardwareBreakpointLimit ?? 2
         let count = appState.breakpointCount
 

@@ -71,7 +71,9 @@ struct GutterView: View {
         .overlay(alignment: .trailing) {
             Divider()
         }
-        .cursor(.pointingHand)
+        .onHover { inside in
+            if inside { NSCursor.pointingHand.push() } else { NSCursor.pop() }
+        }
         .gesture(
             DragGesture(minimumDistance: 0, coordinateSpace: .local)
                 .onEnded { val in handleGutterClick(at: val.location.y) }
@@ -79,10 +81,14 @@ struct GutterView: View {
     }
 
     private func handleGutterClick(at y: CGFloat) {
-        guard let url else { return }
-        guard let closest = state.visibleLines.min(by: { abs($0.y - y) < abs($1.y - y) }),
-              abs(closest.y - y) < 12 else { return }
-        appState.toggleBreakpoint(file: url, line: closest.number)
+        guard let url, !state.visibleLines.isEmpty else { return }
+        // Map the click to the line whose vertical band [y, y+lineHeight)
+        // contains it — not the nearest top edge, which mis-fires to the next
+        // line for lower-half clicks.
+        let sorted = state.visibleLines.sorted { $0.y < $1.y }
+        let lineHeight: CGFloat = sorted.count >= 2 ? max(8, sorted[1].y - sorted[0].y) : 18
+        guard let line = sorted.last(where: { $0.y <= y }), y < line.y + lineHeight else { return }
+        appState.toggleBreakpoint(file: url, line: line.number)
     }
 
     private var diagnosticsByLine: [Int: Diagnostic.Severity] {
