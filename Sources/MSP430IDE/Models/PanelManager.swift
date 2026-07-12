@@ -455,12 +455,7 @@ struct TearLivePreview: View {
             .background(.bar)
             Divider()
             Group {
-                switch id {
-                case .console:  ConsoleView()
-                case .problems: ProblemsView()
-                case .fileTree: FileTreeView()
-                case .debugger: DebuggerView()
-                }
+                PanelContentView(id: id)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }

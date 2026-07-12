@@ -31,9 +31,9 @@ private struct TabItem: View {
         let isDirty = appState.buffers[url]?.isDirty ?? false
 
         HStack(spacing: 6) {
-            Image(systemName: iconName)
+            Image(systemName: url.fileIconName)
                 .font(.caption)
-                .foregroundStyle(iconColor)
+                .foregroundStyle(url.fileIconColor)
 
             Text(url.lastPathComponent)
                 .font(.system(.caption, design: .monospaced))
@@ -118,21 +118,4 @@ private struct TabItem: View {
         }
     }
 
-    private var iconName: String {
-        switch url.pathExtension.lowercased() {
-        case "c": return "c.square"
-        case "h": return "h.square"
-        case "s", "asm": return "s.square"
-        default: return "doc"
-        }
-    }
-
-    private var iconColor: Color {
-        switch url.pathExtension.lowercased() {
-        case "c": return .blue
-        case "h": return .purple
-        case "s", "asm": return .orange
-        default: return .secondary
-        }
-    }
 }

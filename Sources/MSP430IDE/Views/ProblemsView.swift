@@ -48,8 +48,8 @@ struct DiagnosticRow: View {
             appState.jumpTo(diagnostic: diag)
         } label: {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
-                Image(systemName: iconName)
-                    .foregroundStyle(color)
+                Image(systemName: diag.severity.iconName)
+                    .foregroundStyle(diag.severity.color)
                     .font(.caption)
                 Text(location)
                     .font(.system(.caption, design: .monospaced))
@@ -87,19 +87,4 @@ struct DiagnosticRow: View {
         return diag.file.lastPathComponent
     }
 
-    private var iconName: String {
-        switch diag.severity {
-        case .error:   return "xmark.circle.fill"
-        case .warning: return "exclamationmark.triangle.fill"
-        case .note:    return "info.circle.fill"
-        }
-    }
-
-    private var color: Color {
-        switch diag.severity {
-        case .error:   return .red
-        case .warning: return .yellow
-        case .note:    return .blue
-        }
-    }
 }
