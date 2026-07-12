@@ -1325,13 +1325,8 @@ final class AppState: ObservableObject {
 
     func cleanBuild() {
         guard let proj = project else { return }
-        switch proj.mode {
-        case .native:
-            try? FileManager.default.removeItem(at: proj.buildDir)
-            appendConsole("Cleaned \(proj.buildDir.lastPathComponent)/\n")
-        case .external:
-            Task { await runExternal(command: proj.external.clean, label: "clean") }
-        }
+        let sys = proj.buildSystem(toolchain: toolchain, configName: activeConfig)
+        Task { await sys.clean { [weak self] line in Task { @MainActor [weak self] in self?.appendConsole(line) } } }
     }
 
     // MARK: - Build / Flash
@@ -1355,37 +1350,22 @@ final class AppState: ObservableObject {
             ingestDiagnostics(fromOffset: outputStart, projectRoot: proj.rootURL)
         }
 
-        switch proj.mode {
-        case .native:
-            guard toolchain.gccPath != nil || proj.toolchainOverride.gccPath != nil else {
-                appendConsole("✗ msp430-elf-gcc not found.\n")
-                statusMessage = "Build failed"
-                return
-            }
-            let builder = Builder(toolchain: toolchain, project: proj, configName: activeConfig)
-            let result = await builder.build { [weak self] line in
-                Task { @MainActor [weak self] in self?.appendConsole(line) }
-            }
-            switch result {
-            case .success(let elf):
-                appendConsole("✓ Built \(elf.lastPathComponent)\n")
-                statusMessage = "Build succeeded"
-            case .failure(let err):
-                appendConsole("✗ \(err.localizedDescription)\n")
-                statusMessage = "Build failed"
-            }
-        case .external:
-            let result = await ExternalBuilder(project: proj, command: proj.external.build).run(label: "build") { [weak self] line in
-                Task { @MainActor [weak self] in self?.appendConsole(line) }
-            }
-            switch result {
-            case .success:
-                appendConsole("✓ Build succeeded\n")
-                statusMessage = "Build succeeded"
-            case .failure(let err):
-                appendConsole("✗ \(err.localizedDescription)\n")
-                statusMessage = "Build failed"
-            }
+        if proj.mode == .native, toolchain.gccPath == nil, proj.toolchainOverride.gccPath == nil {
+            appendConsole("✗ msp430-elf-gcc not found.\n")
+            statusMessage = "Build failed"
+            return
+        }
+        let sys = proj.buildSystem(toolchain: toolchain, configName: activeConfig)
+        let result = await sys.build { [weak self] line in
+            Task { @MainActor [weak self] in self?.appendConsole(line) }
+        }
+        switch result {
+        case .success(let elf):
+            appendConsole("✓ Built \(elf?.lastPathComponent ?? proj.name)\n")
+            statusMessage = "Build succeeded"
+        case .failure(let err):
+            appendConsole("✗ \(err.localizedDescription)\n")
+            statusMessage = "Build failed"
         }
     }
 
@@ -1398,49 +1378,17 @@ final class AppState: ObservableObject {
         isFlashing = true
         defer { isFlashing = false }
 
-        switch proj.mode {
-        case .native:
-            guard toolchain.mspdebugPath != nil else {
-                appendConsole("✗ mspdebug not found.\n")
-                statusMessage = "Flash failed"
-                return
-            }
-            let elf = proj.buildDir.appendingPathComponent("\(proj.name).elf")
-            guard FileManager.default.fileExists(atPath: elf.path) else {
-                appendConsole("✗ No build output. Build first.\n")
-                statusMessage = "Flash failed"
-                return
-            }
-            appendConsole("\n→ Flashing \(proj.name) via mspdebug \(proj.flash.driver)\n")
-            let result = await Flasher(toolchain: toolchain, project: proj).flash(elf: elf) { [weak self] line in
-                Task { @MainActor [weak self] in self?.appendConsole(line) }
-            }
-            switch result {
-            case .success:
-                appendConsole("✓ Flashed.\n")
-                statusMessage = "Flash succeeded"
-            case .failure(let err):
-                appendConsole("✗ \(err.localizedDescription)\n")
-                statusMessage = "Flash failed"
-            }
-        case .external:
-            await runExternal(command: proj.external.flash, label: "flash")
-        }
-    }
-
-    private func runExternal(command: String, label: String) async {
-        guard let proj = project else { return }
-        appendConsole("\n→ \(label)\n")
-        let result = await ExternalBuilder(project: proj, command: command).run(label: label) { [weak self] line in
+        let sys = proj.buildSystem(toolchain: toolchain, configName: activeConfig)
+        let result = await sys.flash { [weak self] line in
             Task { @MainActor [weak self] in self?.appendConsole(line) }
         }
         switch result {
         case .success:
-            appendConsole("✓ \(label) succeeded\n")
-            statusMessage = "\(label.capitalized) succeeded"
+            appendConsole("✓ Flashed.\n")
+            statusMessage = "Flash succeeded"
         case .failure(let err):
             appendConsole("✗ \(err.localizedDescription)\n")
-            statusMessage = "\(label.capitalized) failed"
+            statusMessage = "Flash failed"
         }
     }
 }
