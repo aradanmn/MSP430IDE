@@ -221,10 +221,10 @@ struct DebuggerView: View {
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 0) {
                         ForEach(allBkpts, id: \.1) { url, line in
+                            let armed = appState.isBreakpointConfirmed(file: url, line: line)
                             HStack(spacing: 6) {
-                                Image(systemName: "octagon.fill")
-                                    .font(.system(size: 8))
-                                    .foregroundStyle(.red)
+                                BreakpointGlyph(armed: armed, size: 9)
+                                    .help(armed ? "Breakpoint" : "Breakpoint (hardware limit — not armed)")
                                 Button {
                                     appState.jumpToBreakpoint(file: url, line: line)
                                 } label: {
