@@ -65,19 +65,29 @@ struct AppToolbar: ToolbarContent {
                     Button { appState.debugContinue() } label: {
                         Label("Continue", systemImage: "play.fill")
                     }
-                    .help("Continue (F5)")
+                    .help("Continue — run until next breakpoint (F5)")
+                    Divider()
+                    Button { appState.debugNextInstruction() } label: {
+                        Label("Next Instr", systemImage: "arrow.right.circle.fill")
+                    }
+                    .help("Next Instruction — one opcode, steps over calls (F10)")
+                    Button { appState.debugStepInstruction() } label: {
+                        Label("Step Instr", systemImage: "arrow.right.circle")
+                    }
+                    .help("Step Instruction — one opcode, follows calls (F11)")
+                    Divider()
                     Button { appState.debugStepOver() } label: {
                         Label("Step Over", systemImage: "arrow.right.to.line")
                     }
-                    .help("Step Over (F6)")
+                    .help("Step Over source line (F6)")
                     Button { appState.debugStepIn() } label: {
                         Label("Step In", systemImage: "arrow.turn.down.right")
                     }
-                    .help("Step In (F7)")
+                    .help("Step Into source line (F7)")
                     Button { appState.debugStepOut() } label: {
                         Label("Step Out", systemImage: "arrow.turn.up.right")
                     }
-                    .help("Step Out (F8)")
+                    .help("Step Out of current function (F8)")
                 } else if appState.debugSessionState == .running {
                     Button { appState.debugPause() } label: {
                         Label("Pause", systemImage: "pause.fill")

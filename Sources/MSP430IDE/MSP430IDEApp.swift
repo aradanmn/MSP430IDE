@@ -174,21 +174,41 @@ struct MSP430IDEApp: App {
                 Button("Continue") {
                     appState.debugContinue()
                 }
+                .keyboardShortcut(KeyEquivalent(Character(UnicodeScalar(0xF708)!)), modifiers: [])  // F5
                 .disabled(appState.debugSessionState != .stopped)
+
+                Divider()
+
+                Button("Next Instruction") {
+                    appState.debugNextInstruction()
+                }
+                .keyboardShortcut(KeyEquivalent(Character(UnicodeScalar(0xF70D)!)), modifiers: [])  // F10
+                .disabled(appState.debugSessionState != .stopped)
+
+                Button("Step Instruction") {
+                    appState.debugStepInstruction()
+                }
+                .keyboardShortcut(KeyEquivalent(Character(UnicodeScalar(0xF70E)!)), modifiers: [])  // F11
+                .disabled(appState.debugSessionState != .stopped)
+
+                Divider()
 
                 Button("Step Over") {
                     appState.debugStepOver()
                 }
+                .keyboardShortcut(KeyEquivalent(Character(UnicodeScalar(0xF709)!)), modifiers: [])  // F6
                 .disabled(appState.debugSessionState != .stopped)
 
                 Button("Step In") {
                     appState.debugStepIn()
                 }
+                .keyboardShortcut(KeyEquivalent(Character(UnicodeScalar(0xF70A)!)), modifiers: [])  // F7
                 .disabled(appState.debugSessionState != .stopped)
 
                 Button("Step Out") {
                     appState.debugStepOut()
                 }
+                .keyboardShortcut(KeyEquivalent(Character(UnicodeScalar(0xF70B)!)), modifiers: [])  // F8
                 .disabled(appState.debugSessionState != .stopped)
 
                 Divider()

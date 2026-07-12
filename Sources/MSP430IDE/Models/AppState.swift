@@ -1059,11 +1059,25 @@ final class AppState: ObservableObject {
                 }
             }
 
-            // Remote targets are started with `continue` (the program is
-            // already on-chip, halted at the reset vector) — not `run`, which
-            // is for launching a local process.
-            debugSessionState = .running
-            try await client.send("-exec-continue")
+            // After -target-download the CPU sits halted at the reset vector.
+            // Leave it there (no -exec-continue) so the user can inspect or
+            // step from the very first instruction without needing a breakpoint.
+            debugSessionState = .stopped
+            debugPanelTab = 0
+            await refreshDebugState()
+            if let topFrame = debugStack.first {
+                debugCurrentFile = topFrame.file
+                debugCurrentLine = topFrame.line
+                if let url = topFrame.file, let line = topFrame.line {
+                    selectFile(url)
+                    NotificationCenter.default.post(
+                        name: .msp430EditorJumpToLine, object: nil,
+                        userInfo: ["url": url, "line": line, "column": 1]
+                    )
+                }
+            }
+            onDebuggerStopped?()
+            appendDebugConsole("→ Halted at entry — Continue (F5) to run, or Step Instruction (F11) to trace\n")
         } catch {
             appendDebugConsole("✗ Debug session failed: \(error.localizedDescription)\n")
             await cleanupDebugSession()
@@ -1099,6 +1113,18 @@ final class AppState: ObservableObject {
     func debugStepOut() {
         let client = gdbClient
         Task { _ = try? await client?.send("-exec-finish") }
+    }
+
+    /// Step exactly one machine instruction, following calls into subroutines.
+    func debugStepInstruction() {
+        let client = gdbClient
+        Task { _ = try? await client?.send("-exec-stepi") }
+    }
+
+    /// Step exactly one machine instruction, stepping over calls (continues until they return).
+    func debugNextInstruction() {
+        let client = gdbClient
+        Task { _ = try? await client?.send("-exec-nexti") }
     }
 
     func selectDebugFrame(_ frame: StackFrame) {
