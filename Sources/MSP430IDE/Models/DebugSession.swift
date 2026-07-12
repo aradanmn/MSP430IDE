@@ -100,9 +100,7 @@ final class DebugSession {
                 for line in lines.sorted() {
                     do {
                         let result = try await client.send("-break-insert -f \(url.path):\(line)")
-                        if let no = result["bkpt"]?["number"]?.string.flatMap(Int.init) {
-                            gdbBreakpointMap["\(url.path):\(line)"] = no
-                        }
+                        recordBreakpointInsert(result, key: "\(url.path):\(line)", label: "\(url.lastPathComponent):\(line)")
                     } catch {
                         callbacks.onConsoleOutput("⚠ Breakpoint \(url.lastPathComponent):\(line) not armed: \(error.localizedDescription)\n")
                     }
@@ -118,6 +116,9 @@ final class DebugSession {
             if let top = frames.first, let url = top.file, let line = top.line {
                 callbacks.onSelectFile(url)
                 callbacks.onJumpToLine(url, line)
+            }
+            if frames.first?.line == nil {
+                callbacks.onConsoleOutput("⚠ No source-line info in the ELF — the execution arrow and file:line breakpoints won't work. Rebuild (⌘B) with the current IDE, then restart the session.\n")
             }
             callbacks.onStopped()
             callbacks.onConsoleOutput("→ Halted at entry — Continue (F5) to run, or Step Instruction (F11) to trace\n")
@@ -168,9 +169,7 @@ final class DebugSession {
                 guard let self else { return }
                 do {
                     let result = try await client.send("-break-insert -f \(file.path):\(line)")
-                    if let no = result["bkpt"]?["number"]?.string.flatMap(Int.init) {
-                        self.gdbBreakpointMap[key] = no
-                    }
+                    self.recordBreakpointInsert(result, key: key, label: "\(file.lastPathComponent):\(line)")
                 } catch {
                     self.callbacks.onConsoleOutput("⚠ Breakpoint not set: \(error.localizedDescription)\n")
                 }
@@ -181,6 +180,26 @@ final class DebugSession {
                 Task { _ = try? await client?.send("-break-delete \(bkptNo)") }
             }
         }
+    }
+
+    /// Record a -break-insert result. Only a breakpoint GDB resolved to a
+    /// real address goes into gdbBreakpointMap (= confirmed/armed). With
+    /// `-break-insert -f`, an unresolvable location — usually an ELF built
+    /// without debug line info — comes back as a *pending* breakpoint that
+    /// will never stop the target; surface that instead of showing it armed.
+    private func recordBreakpointInsert(_ result: [String: GDBMIValue], key: String, label: String) {
+        guard let bkpt = result["bkpt"] else { return }
+        let number = bkpt["number"]?.string.flatMap(Int.init)
+        if bkpt["pending"] != nil || bkpt["addr"]?.string == "<PENDING>" {
+            // Remove it from GDB too, so it can't half-resolve later.
+            if let number {
+                let client = gdbClient
+                Task { _ = try? await client?.send("-break-delete \(number)") }
+            }
+            callbacks.onConsoleOutput("⚠ Breakpoint \(label) is PENDING — GDB couldn't map that line to an address, so it will not stop the target. The ELF probably lacks debug line info: rebuild (⌘B), then restart the session.\n")
+            return
+        }
+        if let number { gdbBreakpointMap[key] = number }
     }
 
     /// True when the breakpoint at file:line was accepted by the hardware

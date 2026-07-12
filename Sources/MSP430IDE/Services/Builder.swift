@@ -61,11 +61,19 @@ struct Builder {
             var args: [String] = [mcuFlag]
             args += asmflags
             args += cflagsNoOpt
-            // Same as the C path: without -g the assembler emits no line
-            // table, GDB reports "in _start ()" with no file:line, and the
-            // gutter's execution arrow never appears for assembly sources.
-            if !(asmflags + cflagsNoOpt).contains(where: { $0.hasPrefix("-g") }) {
-                args.append("-g")
+            // Same as the C path — but for assembly inputs the gcc driver
+            // does NOT forward -g to the assembler, so the line table never
+            // gets generated and GDB reports "in _start ()" with no
+            // file:line (no execution arrow, unresolvable breakpoints).
+            // --gdwarf-2 must be passed to as directly; -g0 opts out of both.
+            let userFlags = asmflags + cflagsNoOpt
+            if !userFlags.contains("-g0") {
+                if !userFlags.contains(where: { $0.hasPrefix("-g") }) {
+                    args.append("-g")
+                }
+                if !userFlags.contains(where: { $0.hasPrefix("-Wa,--gdwarf") }) {
+                    args.append("-Wa,--gdwarf-2")
+                }
             }
             args += defineFlags
             args += includeFlags
