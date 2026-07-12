@@ -261,7 +261,7 @@ struct CodeEditorView: NSViewRepresentable {
         /// Intercept the Escape / F5 "complete:" command so manual completion
         /// uses clangd instead of the built-in dictionary.
         func textView(_ textView: NSTextView, doCommandBy selector: Selector) -> Bool {
-            if selector == Selector(("complete:")) {
+            if selector == #selector(NSTextView.complete(_:)) {
                 triggerCompletion()
                 return true
             }
