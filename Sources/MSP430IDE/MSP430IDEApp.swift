@@ -67,7 +67,7 @@ struct MSP430IDEApp: App {
                 }
         }
         .windowToolbarStyle(.unified)
-        .defaultSize(width: 1180, height: 760)
+        .defaultSize(width: 1440, height: 900)
         .windowResizability(.contentMinSize)
         .commands {
             AppCommands(appState: appState, panels: panels, menu: appState.menu)
