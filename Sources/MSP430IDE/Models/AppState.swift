@@ -49,6 +49,9 @@ final class AppState: ObservableObject {
     var onDiagnosticsUpdated: (([Diagnostic]) -> Void)?
 
     let editor = EditorService()
+    /// Menu-relevant state, deduplicated — the menu bar observes this
+    /// instead of AppState so console/diagnostic churn can't close menus.
+    let menu = MenuState()
     private var editorSubscription: AnyCancellable?
 
     /// clangd integration (nil if clangd isn't installed). Provides live
@@ -87,6 +90,7 @@ final class AppState: ObservableObject {
             self.lspDiagnostics[file] = diags
             self.refreshDisplayedDiagnostics()
         }
+        menu.bind(to: self)
     }
 
     // MARK: - LSP (clangd)
