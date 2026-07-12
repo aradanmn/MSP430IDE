@@ -4,8 +4,17 @@ import AppKit
 @main
 struct MSP430IDEApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
-    @StateObject private var appState = AppState()
-    @StateObject private var panels = PanelManager()
+    // Plain lets, NOT @StateObject: the App struct is created once per
+    // process, so lifetime doesn't need the wrapper — and @StateObject
+    // would subscribe the scene body to every objectWillChange, which on
+    // macOS rebuilds the menu bar and closes any open menu (the submenu
+    // flicker bug). Views observe these via @EnvironmentObject.
+    private let appState: AppState
+    private let panels: PanelManager
+    // The one thing the scene body does observe: deduplicated menu state.
+    // Menus rebuild exactly when a menu-relevant fact changes, never from
+    // console/diagnostic churn.
+    @ObservedObject private var menu: MenuState
 
     init() {
         if let path = ProcessInfo.processInfo.environment["MSP430IDE_VALIDATE"] {
@@ -15,6 +24,10 @@ struct MSP430IDEApp: App {
             let cfg = ProcessInfo.processInfo.environment["MSP430IDE_CONFIG"] ?? "Debug"
             ProjectValidator.buildAndExit(path: path, configName: cfg)
         }
+        let state = AppState()
+        appState = state
+        panels = PanelManager()
+        _menu = ObservedObject(wrappedValue: state.menu)
     }
 
     var body: some Scene {
