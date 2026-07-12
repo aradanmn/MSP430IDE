@@ -34,7 +34,11 @@ struct Builder {
 
         for src in project.sourceFiles {
             let obj = project.buildDir.appendingPathComponent(src.lastPathComponent + ".o")
-            let args = [mcuFlag] + effective.cflags + defineFlags + includeFlags + ["-c", src.path, "-o", obj.path]
+            var args: [String] = [mcuFlag]
+            args += effective.cflags
+            args += defineFlags
+            args += includeFlags
+            args += ["-c", src.path, "-o", obj.path]
             onOutput("$ \(gcc.lastPathComponent) \(args.joined(separator: " "))\n")
             let exit = await runner.run(executable: gcc, arguments: args, workingDir: project.rootURL, onLine: onOutput)
             if exit != 0 { return .failure(BuildError.compilerExit(Int(exit))) }
@@ -44,10 +48,15 @@ struct Builder {
         for src in project.assemblyFiles {
             let obj = project.buildDir.appendingPathComponent(src.lastPathComponent + ".o")
             let cflagsNoOpt = effective.cflags.filter { !$0.hasPrefix("-O") }
-            let asmflags = effective.asmflags.isEmpty
+            let asmflags: [String] = effective.asmflags.isEmpty
                 ? ["-x", "assembler-with-cpp", "-nostdlib"]
                 : effective.asmflags
-            let args = [mcuFlag] + asmflags + cflagsNoOpt + defineFlags + includeFlags + ["-c", src.path, "-o", obj.path]
+            var args: [String] = [mcuFlag]
+            args += asmflags
+            args += cflagsNoOpt
+            args += defineFlags
+            args += includeFlags
+            args += ["-c", src.path, "-o", obj.path]
             onOutput("$ \(gcc.lastPathComponent) \(args.joined(separator: " "))\n")
             let exit = await runner.run(executable: gcc, arguments: args, workingDir: project.rootURL, onLine: onOutput)
             if exit != 0 { return .failure(BuildError.compilerExit(Int(exit))) }
