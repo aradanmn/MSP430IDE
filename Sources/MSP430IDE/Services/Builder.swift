@@ -36,6 +36,13 @@ struct Builder {
             let obj = project.buildDir.appendingPathComponent(src.lastPathComponent + ".o")
             var args: [String] = [mcuFlag]
             args += effective.cflags
+            // Debug line info drives the debugger's current-line marker and
+            // source-level stepping. It lives only in the ELF (never reaches
+            // flash), so add it unless the user picked a -g variant (-g0,
+            // -ggdb, -gdwarf-…) themselves.
+            if !effective.cflags.contains(where: { $0.hasPrefix("-g") }) {
+                args.append("-g")
+            }
             args += defineFlags
             args += includeFlags
             args += ["-c", src.path, "-o", obj.path]
@@ -54,6 +61,20 @@ struct Builder {
             var args: [String] = [mcuFlag]
             args += asmflags
             args += cflagsNoOpt
+            // Same as the C path — but for assembly inputs the gcc driver
+            // does NOT forward -g to the assembler, so the line table never
+            // gets generated and GDB reports "in _start ()" with no
+            // file:line (no execution arrow, unresolvable breakpoints).
+            // --gdwarf-2 must be passed to as directly; -g0 opts out of both.
+            let userFlags = asmflags + cflagsNoOpt
+            if !userFlags.contains("-g0") {
+                if !userFlags.contains(where: { $0.hasPrefix("-g") }) {
+                    args.append("-g")
+                }
+                if !userFlags.contains(where: { $0.hasPrefix("-Wa,--gdwarf") }) {
+                    args.append("-Wa,--gdwarf-2")
+                }
+            }
             args += defineFlags
             args += includeFlags
             args += ["-c", src.path, "-o", obj.path]

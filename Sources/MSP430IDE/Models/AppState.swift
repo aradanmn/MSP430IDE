@@ -884,6 +884,8 @@ final class AppState: ObservableObject {
     @Published var debugLocals: [LocalVariable] = []
     @Published var debugConsole: String = ""
     @Published var isDebugging: Bool = false
+    @Published var debugRegisters: [RegisterValue] = []
+    @Published var debugPanelTab: Int = 0
 
     var onDebuggerStopped: (() -> Void)?
     /// Fired when a debug session starts (true) or ends (false), so the UI
@@ -893,6 +895,7 @@ final class AppState: ObservableObject {
     private var gdbClient: GDBClient?
     private var mspdebugProcess: Process?
     private var gdbBreakpointMap: [String: Int] = [:]  // "path:line" → GDB bkpt#
+    private var cachedRegisterNames: [String]? = nil
 
     func appendDebugConsole(_ s: String) {
         debugConsole += s
@@ -936,15 +939,33 @@ final class AppState: ObservableObject {
                     guard let self else { return }
                     do {
                         let result = try await client.send("-break-insert -f \(file.path):\(line)")
-                        if let bkptNo = result["bkpt"]?["number"]?.string.flatMap(Int.init) {
-                            self.gdbBreakpointMap[key] = bkptNo
-                        }
+                        self.recordBreakpointInsert(result, key: key, label: "\(file.lastPathComponent):\(line)")
                     } catch {
                         self.appendDebugConsole("⚠ Breakpoint not set: \(error.localizedDescription)\n")
                     }
                 }
             }
         }
+    }
+
+    /// Record a -break-insert result. Only a breakpoint GDB resolved to a
+    /// real address goes into gdbBreakpointMap (= confirmed/armed). With
+    /// `-break-insert -f`, an unresolvable location — usually an ELF built
+    /// without debug line info — comes back as a *pending* breakpoint that
+    /// will never stop the target; surface that instead of showing it armed.
+    private func recordBreakpointInsert(_ result: [String: GDBMIValue], key: String, label: String) {
+        guard let bkpt = result["bkpt"] else { return }
+        let number = bkpt["number"]?.string.flatMap(Int.init)
+        if bkpt["pending"] != nil || bkpt["addr"]?.string == "<PENDING>" {
+            // Remove it from GDB too, so it can't half-resolve later.
+            if let number {
+                let client = gdbClient
+                Task { _ = try? await client?.send("-break-delete \(number)") }
+            }
+            appendDebugConsole("⚠ Breakpoint \(label) is PENDING — GDB couldn't map that line to an address, so it will not stop the target. The ELF probably lacks debug line info: rebuild (⌘B), then restart the session.\n")
+            return
+        }
+        if let number { gdbBreakpointMap[key] = number }
     }
 
     func jumpToBreakpoint(file: URL, line: Int) {
@@ -1051,20 +1072,35 @@ final class AppState: ObservableObject {
                 for line in lines.sorted() {
                     do {
                         let result = try await client.send("-break-insert -f \(url.path):\(line)")
-                        if let bkptNo = result["bkpt"]?["number"]?.string.flatMap(Int.init) {
-                            gdbBreakpointMap["\(url.path):\(line)"] = bkptNo
-                        }
+                        recordBreakpointInsert(result, key: "\(url.path):\(line)", label: "\(url.lastPathComponent):\(line)")
                     } catch {
                         appendDebugConsole("⚠ Breakpoint \(url.lastPathComponent):\(line) not armed: \(error.localizedDescription)\n")
                     }
                 }
             }
 
-            // Remote targets are started with `continue` (the program is
-            // already on-chip, halted at the reset vector) — not `run`, which
-            // is for launching a local process.
-            debugSessionState = .running
-            try await client.send("-exec-continue")
+            // After -target-download the CPU sits halted at the reset vector.
+            // Leave it there (no -exec-continue) so the user can inspect or
+            // step from the very first instruction without needing a breakpoint.
+            debugSessionState = .stopped
+            debugPanelTab = 0
+            await refreshDebugState()
+            if let topFrame = debugStack.first {
+                debugCurrentFile = topFrame.file
+                debugCurrentLine = topFrame.line
+                if let url = topFrame.file, let line = topFrame.line {
+                    selectFile(url)
+                    NotificationCenter.default.post(
+                        name: .msp430EditorJumpToLine, object: nil,
+                        userInfo: ["url": url, "line": line, "column": 1]
+                    )
+                }
+            }
+            if debugStack.first?.line == nil {
+                appendDebugConsole("⚠ No source-line info in the ELF — the execution arrow and file:line breakpoints won't work. Rebuild (⌘B) with the current IDE, then restart the session.\n")
+            }
+            onDebuggerStopped?()
+            appendDebugConsole("→ Halted at entry — Continue (F5) to run, or Step Instruction (F11) to trace\n")
         } catch {
             appendDebugConsole("✗ Debug session failed: \(error.localizedDescription)\n")
             await cleanupDebugSession()
@@ -1102,6 +1138,18 @@ final class AppState: ObservableObject {
         Task { _ = try? await client?.send("-exec-finish") }
     }
 
+    /// Step exactly one machine instruction, following calls into subroutines.
+    func debugStepInstruction() {
+        let client = gdbClient
+        Task { _ = try? await client?.send("-exec-stepi") }
+    }
+
+    /// Step exactly one machine instruction, stepping over calls (continues until they return).
+    func debugNextInstruction() {
+        let client = gdbClient
+        Task { _ = try? await client?.send("-exec-nexti") }
+    }
+
     func selectDebugFrame(_ frame: StackFrame) {
         let client = gdbClient
         Task { @MainActor [weak self] in
@@ -1120,6 +1168,7 @@ final class AppState: ObservableObject {
 
     private func handleDebugStopped(_ event: StopEvent) {
         debugSessionState = .stopped
+        debugPanelTab = 0   // auto-select Registers tab
         if let frame = event.frame {
             debugCurrentFile = frame.file
             debugCurrentLine = frame.line
@@ -1173,6 +1222,28 @@ final class AppState: ObservableObject {
             }
             debugLocals = locals
         }
+        // Fetch register names once per session, then values on every stop
+        if cachedRegisterNames == nil,
+           let namesResult = try? await client.send("-data-list-register-names"),
+           let namesArray = namesResult["register-names"]?.array {
+            cachedRegisterNames = namesArray.compactMap { $0.string }
+        }
+        if let names = cachedRegisterNames,
+           let valResult = try? await client.send("-data-list-register-values x"),
+           let valArray = valResult["register-values"]?.array {
+            let regs: [RegisterValue] = valArray.compactMap { item -> RegisterValue? in
+                let d: [String: GDBMIValue]?
+                if case .tuple(let dict) = item { d = dict } else { d = item.dict }
+                guard let d,
+                      let numStr = d["number"]?.string, let num = Int(numStr),
+                      let valStr = d["value"]?.string,
+                      num < names.count, !names[num].isEmpty else { return nil }
+                let stripped = valStr.hasPrefix("0x") ? String(valStr.dropFirst(2)) : valStr
+                let v = UInt32(stripped, radix: valStr.hasPrefix("0x") ? 16 : 10) ?? 0
+                return RegisterValue(number: num, name: names[num], value: v)
+            }.sorted { $0.number < $1.number }
+            debugRegisters = regs
+        }
     }
 
     private func cleanupDebugSession() async {
@@ -1181,6 +1252,7 @@ final class AppState: ObservableObject {
         mspdebugProcess?.terminate()
         mspdebugProcess = nil
         gdbBreakpointMap = [:]
+        cachedRegisterNames = nil
         debugSessionState = .idle
         isDebugging = false
         onDebugActiveChanged?(false)
@@ -1188,6 +1260,8 @@ final class AppState: ObservableObject {
         debugCurrentLine = nil
         debugStack = []
         debugLocals = []
+        debugRegisters = []
+        debugPanelTab = 0
     }
 
     /// Recompute the displayed `diagnostics`/`diagnosticsInOrder` by merging
