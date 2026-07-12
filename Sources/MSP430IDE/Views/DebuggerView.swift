@@ -2,7 +2,6 @@ import SwiftUI
 
 struct DebuggerView: View {
     @EnvironmentObject var appState: AppState
-    @State private var selectedTab = 0
 
     var body: some View {
         switch appState.debugSessionState {
@@ -73,13 +72,13 @@ struct DebuggerView: View {
 
             // Tab bar
             HStack(spacing: 0) {
-                ForEach(["Variables", "Stack", "Breakpoints"].enumerated().map { $0 }, id: \.offset) { idx, title in
-                    Button(title) { selectedTab = idx }
+                ForEach(["Registers", "Variables", "Stack", "Breakpoints"].enumerated().map { $0 }, id: \.offset) { idx, title in
+                    Button(title) { appState.debugPanelTab = idx }
                         .buttonStyle(.plain)
                         .font(.system(size: 11))
                         .padding(.horizontal, 10)
                         .padding(.vertical, 5)
-                        .background(selectedTab == idx ? Color(nsColor: .selectedControlColor).opacity(0.5) : Color.clear)
+                        .background(appState.debugPanelTab == idx ? Color(nsColor: .selectedControlColor).opacity(0.5) : Color.clear)
                         .contentShape(Rectangle())
                 }
                 Spacer()
@@ -87,9 +86,10 @@ struct DebuggerView: View {
             .background(Color(nsColor: .controlBackgroundColor))
             Divider()
 
-            switch selectedTab {
-            case 0: variablesPane
-            case 1: stackPane
+            switch appState.debugPanelTab {
+            case 0: registersPane
+            case 1: variablesPane
+            case 2: stackPane
             default: breakpointsPane
             }
         }
@@ -105,6 +105,54 @@ struct DebuggerView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .padding()
+    }
+
+    private var registersPane: some View {
+        Group {
+            if appState.debugRegisters.isEmpty {
+                Text("No registers").foregroundStyle(.secondary).font(.caption)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 0) {
+                        ForEach(appState.debugRegisters) { reg in
+                            VStack(alignment: .leading, spacing: 0) {
+                                HStack(spacing: 0) {
+                                    Text(reg.displayName)
+                                        .font(.system(size: 11, design: .monospaced))
+                                        .foregroundStyle(.primary)
+                                        .frame(width: 64, alignment: .leading)
+                                    Text(reg.hexString)
+                                        .font(.system(size: 11, design: .monospaced))
+                                        .foregroundStyle(.secondary)
+                                    Spacer()
+                                }
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 3)
+                                // SR flags inline under the SR row
+                                if let flags = reg.srFlags {
+                                    HStack(spacing: 4) {
+                                        ForEach(flags, id: \.name) { flag in
+                                            Text(flag.name)
+                                                .font(.system(size: 9, weight: flag.set ? .bold : .regular, design: .monospaced))
+                                                .foregroundStyle(flag.set ? Color.primary : Color(nsColor: .tertiaryLabelColor))
+                                                .padding(.horizontal, 4)
+                                                .padding(.vertical, 1)
+                                                .background(flag.set ? Color(nsColor: .selectedControlColor).opacity(0.5) : Color.clear)
+                                                .clipShape(RoundedRectangle(cornerRadius: 3))
+                                        }
+                                        Spacer()
+                                    }
+                                    .padding(.leading, 72)
+                                    .padding(.bottom, 3)
+                                }
+                            }
+                            Divider().padding(.leading, 8)
+                        }
+                    }
+                }
+            }
+        }
     }
 
     private var variablesPane: some View {
