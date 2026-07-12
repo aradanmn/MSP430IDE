@@ -39,6 +39,11 @@ struct MSP430IDEApp: App {
                 .onAppear {
                     // Let pop-out windows share the same app state.
                     panels.attach(appState: appState)
+                    // Workspace persists are debounced; flush on quit so the
+                    // last second of state changes isn't lost.
+                    appDelegate.onTerminate = { [weak appState] in
+                        appState?.flushWorkspaceState()
+                    }
                     // Whenever a new build produces diagnostics, flip the
                     // bottom panel to Problems. Auto-switch on any
                     // severity (errors or warnings) per user preference.
@@ -71,8 +76,14 @@ struct MSP430IDEApp: App {
 }
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
+    var onTerminate: (@MainActor () -> Void)?
+
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
         true
+    }
+
+    func applicationWillTerminate(_ notification: Notification) {
+        onTerminate?()
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {

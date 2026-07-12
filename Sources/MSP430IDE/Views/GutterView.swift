@@ -45,16 +45,16 @@ struct GutterView: View {
                             .padding(.leading, 1)
                             .help(confirmed ? "Breakpoint" : "Breakpoint (hardware limit — not armed)")
                     } else if let sev {
-                        Image(systemName: gutterIcon(for: sev))
+                        Image(systemName: sev.iconName)
                             .font(.system(size: 9, weight: .bold))
-                            .foregroundStyle(color(for: sev))
+                            .foregroundStyle(sev.color)
                             .frame(width: 12, height: 12)
                             .padding(.leading, 2)
                             .help(diagMessage(line: line.number))
                     }
                     Text("\(line.number)")
                         .font(.system(size: 10.5, weight: sev != nil ? .semibold : .regular, design: .monospaced))
-                        .foregroundStyle(isCurrent ? Color.yellow : (sev != nil ? color(for: sev!) : Color(nsColor: .tertiaryLabelColor)))
+                        .foregroundStyle(isCurrent ? Color.yellow : (sev?.color ?? Color(nsColor: .tertiaryLabelColor)))
                         .monospacedDigit()
                         .frame(width: state.width - 6, alignment: .trailing)
                 }
@@ -109,19 +109,4 @@ struct GutterView: View {
             .joined(separator: "\n")
     }
 
-    private func gutterIcon(for sev: Diagnostic.Severity) -> String {
-        switch sev {
-        case .error:   return "xmark.circle.fill"
-        case .warning: return "exclamationmark.triangle.fill"
-        case .note:    return "info.circle.fill"
-        }
-    }
-
-    private func color(for sev: Diagnostic.Severity) -> Color {
-        switch sev {
-        case .error:   return .red
-        case .warning: return .yellow
-        case .note:    return .blue
-        }
-    }
 }
