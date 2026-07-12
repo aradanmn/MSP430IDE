@@ -910,10 +910,25 @@ final class AppState: ObservableObject {
     /// can reveal/hide the debugger panel.
     var onDebugActiveChanged: ((Bool) -> Void)?
 
-    private var gdbClient: GDBClient?
-    private var mspdebugProcess: Process?
-    private var gdbBreakpointMap: [String: Int] = [:]  // "path:line" → GDB bkpt#
-    private var cachedRegisterNames: [String]? = nil
+    private lazy var debugSession: DebugSession = {
+        let s = DebugSession()
+        s.callbacks.onStateChanged       = { [weak self] state  in self?.debugSessionState = state }
+        s.callbacks.onIsDebuggingChanged = { [weak self] v      in self?.isDebugging = v }
+        s.callbacks.onDebugActiveChanged = { [weak self] v      in self?.onDebugActiveChanged?(v) }
+        s.callbacks.onCurrentLocation    = { [weak self] f, l   in self?.debugCurrentFile = f; self?.debugCurrentLine = l }
+        s.callbacks.onStackChanged       = { [weak self] frames in self?.debugStack = frames }
+        s.callbacks.onLocalsChanged      = { [weak self] locals in self?.debugLocals = locals }
+        s.callbacks.onRegistersChanged   = { [weak self] regs   in self?.debugRegisters = regs }
+        s.callbacks.onPanelTabChanged    = { [weak self] tab    in self?.debugPanelTab = tab }
+        s.callbacks.onConsoleOutput      = { [weak self] text   in self?.appendDebugConsole(text) }
+        s.callbacks.onSelectFile         = { [weak self] url    in self?.selectFile(url) }
+        s.callbacks.onJumpToLine         = { url, line in
+            NotificationCenter.default.post(name: .msp430EditorJumpToLine, object: nil,
+                                            userInfo: ["url": url, "line": line, "column": 1])
+        }
+        s.callbacks.onStopped = { [weak self] in self?.onDebuggerStopped?() }
+        return s
+    }()
 
     func appendDebugConsole(_ s: String) {
         debugConsole += s
@@ -924,8 +939,7 @@ final class AppState: ObservableObject {
     /// Returns false when not in a debug session (so gutter always shows full dots
     /// when no session is active — the "unconfirmed" state only matters live).
     func isBreakpointConfirmed(file: URL, line: Int) -> Bool {
-        guard isDebugging else { return true }
-        return gdbBreakpointMap["\(file.path):\(line)"] != nil
+        debugSession.isBreakpointConfirmed(file: file, line: line, isDebugging: isDebugging)
     }
 
     /// Total breakpoints set across all files.
@@ -933,15 +947,11 @@ final class AppState: ObservableObject {
 
     func toggleBreakpoint(file: URL, line: Int) {
         var lines = breakpoints[file] ?? []
-        let key = "\(file.path):\(line)"
         if lines.contains(line) {
             // Remove breakpoint
             lines.remove(line)
             if lines.isEmpty { breakpoints.removeValue(forKey: file) } else { breakpoints[file] = lines }
-            if let bkptNo = gdbBreakpointMap.removeValue(forKey: key) {
-                let client = gdbClient
-                Task { _ = try? await client?.send("-break-delete \(bkptNo)") }
-            }
+            debugSession.syncBreakpoint(file: file, line: line, added: false)
         } else {
             // Add breakpoint — enforce hardware limit before inserting
             let limit = project?.hardwareBreakpointLimit ?? 2
@@ -952,19 +962,7 @@ final class AppState: ObservableObject {
             }
             lines.insert(line)
             breakpoints[file] = lines
-            if let client = gdbClient {
-                Task { @MainActor [weak self] in
-                    guard let self else { return }
-                    do {
-                        let result = try await client.send("-break-insert -f \(file.path):\(line)")
-                        if let bkptNo = result["bkpt"]?["number"]?.string.flatMap(Int.init) {
-                            self.gdbBreakpointMap[key] = bkptNo
-                        }
-                    } catch {
-                        self.appendDebugConsole("⚠ Breakpoint not set: \(error.localizedDescription)\n")
-                    }
-                }
-            }
+            debugSession.syncBreakpoint(file: file, line: line, added: true)
         }
     }
 
@@ -1000,268 +998,23 @@ final class AppState: ObservableObject {
             return
         }
 
-        debugSessionState = .starting
-        isDebugging = true
-        onDebugActiveChanged?(true)
         if !debugConsole.isEmpty { debugConsole += "\n" }
-        appendDebugConsole("────────────────────────────────────────\n")
-        appendDebugConsole("→ Starting debug session: \(proj.name) (\(proj.flash.driver))\n")
-
-        // Start mspdebug GDB stub
-        let srv = Process()
-        srv.executableURL = mspdebugPath
-        srv.arguments = [proj.flash.driver, "gdb"]
-        srv.currentDirectoryURL = proj.rootURL
-        if !proj.flash.env.isEmpty {
-            var env = ProcessInfo.processInfo.environment
-            for (k, v) in proj.flash.env { env[k] = v }
-            srv.environment = env
-        }
-        let srvOut = Pipe(); let srvErr = Pipe()
-        srv.standardOutput = srvOut; srv.standardError = srvErr
-        for pipe in [srvOut, srvErr] {
-            pipe.fileHandleForReading.readabilityHandler = { [weak self] h in
-                let d = h.availableData
-                guard !d.isEmpty, let t = String(data: d, encoding: .utf8) else { return }
-                Task { @MainActor [weak self] in self?.appendDebugConsole(t) }
-            }
-        }
-        do { try srv.run() } catch {
-            appendDebugConsole("✗ mspdebug failed: \(error.localizedDescription)\n")
-            await cleanupDebugSession(); return
-        }
-        mspdebugProcess = srv
-
-        // Wait for mspdebug GDB stub to be ready
-        try? await Task.sleep(nanoseconds: 1_500_000_000)
-
-        // Start GDB
-        let client = GDBClient()
-        gdbClient = client
-        await client.setCallbacks(
-            onStopped: { @Sendable [weak self] event in
-                Task { @MainActor [weak self] in self?.handleDebugStopped(event) }
-            },
-            onRunning: { @Sendable [weak self] in
-                Task { @MainActor [weak self] in self?.handleDebugRunning() }
-            },
-            onOutput: { @Sendable [weak self] text in
-                Task { @MainActor [weak self] in self?.appendDebugConsole(text) }
-            },
-            onExited: { @Sendable [weak self] in
-                Task { @MainActor [weak self] in self?.handleDebugExited() }
-            }
-        )
-
-        do {
-            try await client.start(gdbPath: gdbPath, elfPath: elf, workingDir: proj.rootURL)
-            appendDebugConsole("→ GDB connected\n")
-            try await client.send("-target-select remote :2000")
-            appendDebugConsole("→ Target connected\n")
-
-            // Download the program to flash. A remote MSP430 target already
-            // holds the program; we (re)load to guarantee the chip matches the
-            // ELF we have symbols for.
-            appendDebugConsole("→ Loading program into flash…\n")
-            _ = try await client.send("-target-download")
-
-            // Push breakpoints to GDB. The UI already caps them at the hardware
-            // limit, so failures here are unexpected — log them if they occur.
-            gdbBreakpointMap = [:]
-            for (url, lines) in breakpoints {
-                for line in lines.sorted() {
-                    do {
-                        let result = try await client.send("-break-insert -f \(url.path):\(line)")
-                        if let bkptNo = result["bkpt"]?["number"]?.string.flatMap(Int.init) {
-                            gdbBreakpointMap["\(url.path):\(line)"] = bkptNo
-                        }
-                    } catch {
-                        appendDebugConsole("⚠ Breakpoint \(url.lastPathComponent):\(line) not armed: \(error.localizedDescription)\n")
-                    }
-                }
-            }
-
-            // After -target-download the CPU sits halted at the reset vector.
-            // Leave it there (no -exec-continue) so the user can inspect or
-            // step from the very first instruction without needing a breakpoint.
-            debugSessionState = .stopped
-            debugPanelTab = 0
-            await refreshDebugState()
-            if let topFrame = debugStack.first {
-                debugCurrentFile = topFrame.file
-                debugCurrentLine = topFrame.line
-                if let url = topFrame.file, let line = topFrame.line {
-                    selectFile(url)
-                    NotificationCenter.default.post(
-                        name: .msp430EditorJumpToLine, object: nil,
-                        userInfo: ["url": url, "line": line, "column": 1]
-                    )
-                }
-            }
-            onDebuggerStopped?()
-            appendDebugConsole("→ Halted at entry — Continue (F5) to run, or Step Instruction (F11) to trace\n")
-        } catch {
-            appendDebugConsole("✗ Debug session failed: \(error.localizedDescription)\n")
-            await cleanupDebugSession()
-        }
+        await debugSession.start(project: proj, gdbPath: gdbPath,
+                                 mspdebugPath: mspdebugPath, elf: elf,
+                                 breakpoints: breakpoints)
     }
 
-    func stopDebugging() async {
-        let client = gdbClient
-        _ = try? await client?.send("-gdb-exit")
-        await cleanupDebugSession()
-    }
-
-    func debugContinue() {
-        let client = gdbClient
-        Task { _ = try? await client?.send("-exec-continue") }
-    }
-
-    func debugPause() {
-        let client = gdbClient
-        Task { _ = try? await client?.send("-exec-interrupt") }
-    }
-
-    func debugStepIn() {
-        let client = gdbClient
-        Task { _ = try? await client?.send("-exec-step") }
-    }
-
-    func debugStepOver() {
-        let client = gdbClient
-        Task { _ = try? await client?.send("-exec-next") }
-    }
-
-    func debugStepOut() {
-        let client = gdbClient
-        Task { _ = try? await client?.send("-exec-finish") }
-    }
-
+    func stopDebugging() async     { await debugSession.stop() }
+    func debugContinue()           { debugSession.resume() }
+    func debugPause()              { debugSession.pause() }
+    func debugStepIn()             { debugSession.stepIn() }
+    func debugStepOver()           { debugSession.stepOver() }
+    func debugStepOut()            { debugSession.stepOut() }
     /// Step exactly one machine instruction, following calls into subroutines.
-    func debugStepInstruction() {
-        let client = gdbClient
-        Task { _ = try? await client?.send("-exec-stepi") }
-    }
-
+    func debugStepInstruction()    { debugSession.stepInstruction() }
     /// Step exactly one machine instruction, stepping over calls (continues until they return).
-    func debugNextInstruction() {
-        let client = gdbClient
-        Task { _ = try? await client?.send("-exec-nexti") }
-    }
-
-    func selectDebugFrame(_ frame: StackFrame) {
-        let client = gdbClient
-        Task { @MainActor [weak self] in
-            guard let self else { return }
-            _ = try? await client?.send("-stack-select-frame \(frame.id)")
-            await self.refreshDebugState()
-            if let url = frame.file, let line = frame.line {
-                self.selectFile(url)
-                NotificationCenter.default.post(
-                    name: .msp430EditorJumpToLine, object: nil,
-                    userInfo: ["url": url, "line": line, "column": 1]
-                )
-            }
-        }
-    }
-
-    private func handleDebugStopped(_ event: StopEvent) {
-        debugSessionState = .stopped
-        debugPanelTab = 0   // auto-select Registers tab
-        if let frame = event.frame {
-            debugCurrentFile = frame.file
-            debugCurrentLine = frame.line
-            if let url = frame.file, let line = frame.line {
-                selectFile(url)
-                NotificationCenter.default.post(
-                    name: .msp430EditorJumpToLine, object: nil,
-                    userInfo: ["url": url, "line": line, "column": 1]
-                )
-            }
-        }
-        Task { @MainActor [weak self] in await self?.refreshDebugState() }
-        onDebuggerStopped?()
-    }
-
-    private func handleDebugRunning() {
-        debugSessionState = .running
-    }
-
-    private func handleDebugExited() {
-        Task { @MainActor [weak self] in await self?.cleanupDebugSession() }
-    }
-
-    private func refreshDebugState() async {
-        // Capture client on main actor before leaving it
-        let client = gdbClient
-        guard let client else { return }
-        // Fetch stack frames
-        if let stackResult = try? await client.send("-stack-list-frames"),
-           let stackList = stackResult["stack"]?.array {
-            let frames: [StackFrame] = stackList.compactMap { item in
-                guard let frameDict = item.dict?["frame"]?.dict else { return nil }
-                return StackFrame.from(miDict: frameDict)
-            }
-            debugStack = frames
-        }
-        // Fetch locals
-        if let localsResult = try? await client.send("-stack-list-locals --simple-values"),
-           let localsList = localsResult["locals"]?.array {
-            let locals: [LocalVariable] = localsList.compactMap { item -> LocalVariable? in
-                let dict: [String: GDBMIValue]?
-                if case .tuple(let d) = item {
-                    dict = d
-                } else {
-                    dict = item.dict
-                }
-                guard let d = dict, let name = d["name"]?.string else { return nil }
-                let value = d["value"]?.string ?? ""
-                let type_ = d["type"]?.string
-                return LocalVariable(name: name, value: value, type: type_)
-            }
-            debugLocals = locals
-        }
-        // Fetch register names once per session, then values on every stop
-        if cachedRegisterNames == nil,
-           let namesResult = try? await client.send("-data-list-register-names"),
-           let namesArray = namesResult["register-names"]?.array {
-            cachedRegisterNames = namesArray.compactMap { $0.string }
-        }
-        if let names = cachedRegisterNames,
-           let valResult = try? await client.send("-data-list-register-values x"),
-           let valArray = valResult["register-values"]?.array {
-            let regs: [RegisterValue] = valArray.compactMap { item -> RegisterValue? in
-                let d: [String: GDBMIValue]?
-                if case .tuple(let dict) = item { d = dict } else { d = item.dict }
-                guard let d,
-                      let numStr = d["number"]?.string, let num = Int(numStr),
-                      let valStr = d["value"]?.string,
-                      num < names.count, !names[num].isEmpty else { return nil }
-                let stripped = valStr.hasPrefix("0x") ? String(valStr.dropFirst(2)) : valStr
-                let v = UInt32(stripped, radix: valStr.hasPrefix("0x") ? 16 : 10) ?? 0
-                return RegisterValue(number: num, name: names[num], value: v)
-            }.sorted { $0.number < $1.number }
-            debugRegisters = regs
-        }
-    }
-
-    private func cleanupDebugSession() async {
-        await gdbClient?.stop()
-        gdbClient = nil
-        mspdebugProcess?.terminate()
-        mspdebugProcess = nil
-        gdbBreakpointMap = [:]
-        cachedRegisterNames = nil
-        debugSessionState = .idle
-        isDebugging = false
-        onDebugActiveChanged?(false)
-        debugCurrentFile = nil
-        debugCurrentLine = nil
-        debugStack = []
-        debugLocals = []
-        debugRegisters = []
-        debugPanelTab = 0
-    }
+    func debugNextInstruction()    { debugSession.nextInstruction() }
+    func selectDebugFrame(_ frame: StackFrame) { debugSession.selectFrame(frame) }
 
     /// Recompute the displayed `diagnostics`/`diagnosticsInOrder` by merging
     /// build and live (clangd) diagnostics. For files clangd is tracking,
