@@ -655,7 +655,7 @@ final class AppState: ObservableObject {
             }
         }
 
-        persistWorkspaceState()
+        flushWorkspaceState()      // flush immediately — don't defer on close
 
         stopWatching()
         for url in editor.openTabs { lspDidClose(url) }
@@ -816,6 +816,28 @@ final class AppState: ObservableObject {
 
     // MARK: - Workspace state persistence
 
+    private var persistTask: Task<Void, Never>?
+
+    /// Schedules a workspace state write, debounced to at most once per second,
+    /// so call sites that fire on every tab click don't hit the disk each time.
+    /// closeProject() and app termination flush via persistWorkspaceStateNow()
+    /// so state is never lost.
+    private func persistWorkspaceState() {
+        persistTask?.cancel()
+        persistTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: 1_000_000_000)
+            guard !Task.isCancelled else { return }
+            self?.persistWorkspaceStateNow()
+        }
+    }
+
+    /// Flush any pending debounced persist to disk immediately. Called on
+    /// project close and app termination so the debounce never loses state.
+    func flushWorkspaceState() {
+        persistTask?.cancel()
+        persistWorkspaceStateNow()
+    }
+
     private func workspaceStateURL(for root: URL) -> URL {
         root.appendingPathComponent(".msp430ide/workspace.json")
     }
@@ -835,7 +857,7 @@ final class AppState: ObservableObject {
         return state
     }
 
-    private func persistWorkspaceState() {
+    private func persistWorkspaceStateNow() {
         guard let root = workspaceRoot else { return }
         let snap = snapshotForWorkspace(root: root)
         workspace.activeConfig = activeConfig
