@@ -9,6 +9,7 @@ private func opensExternally(_ url: URL) -> Bool {
     ["html", "svg"].contains(url.pathExtension.lowercased())
 }
 
+@MainActor
 private func openTreeFile(_ url: URL, appState: AppState) {
     if opensExternally(url) {
         NSWorkspace.shared.open(url)
