@@ -14,11 +14,12 @@ struct DockRegionView: View {
             Divider()
             Group {
                 switch panels.activePanel(at: edge) {
-                case .console:  ConsoleView()
-                case .problems: ProblemsView()
-                case .fileTree: FileTreeView()
-                case .debugger: DebuggerView()
-                case .none:     Color(nsColor: .textBackgroundColor)
+                case .console:        ConsoleView()
+                case .problems:       ProblemsView()
+                case .fileTree:       FileTreeView()
+                case .debugger:       DebuggerView()
+                case .courseProgress: CourseProgressView()
+                case .none:           Color(nsColor: .textBackgroundColor)
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)

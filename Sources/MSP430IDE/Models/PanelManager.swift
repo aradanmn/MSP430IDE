@@ -8,24 +8,27 @@ enum PanelID: String, CaseIterable, Identifiable, Hashable, Codable {
     case problems
     case fileTree
     case debugger
+    case courseProgress
 
     var id: String { rawValue }
 
     var title: String {
         switch self {
-        case .console:   return "Console"
-        case .problems:  return "Issues"
-        case .fileTree:  return "Files"
-        case .debugger:  return "Debugger"
+        case .console:        return "Console"
+        case .problems:       return "Issues"
+        case .fileTree:       return "Files"
+        case .debugger:       return "Debugger"
+        case .courseProgress: return "Course Progress"
         }
     }
 
     var systemImage: String {
         switch self {
-        case .console:  return "terminal.fill"
-        case .problems: return "exclamationmark.triangle.fill"
-        case .fileTree: return "folder.fill"
-        case .debugger: return "ant.fill"
+        case .console:        return "terminal.fill"
+        case .problems:       return "exclamationmark.triangle.fill"
+        case .fileTree:       return "folder.fill"
+        case .debugger:       return "ant.fill"
+        case .courseProgress: return "graduationcap.fill"
         }
     }
 }
@@ -55,7 +58,7 @@ final class FloatingGroup: ObservableObject, Identifiable {
 final class PanelManager: ObservableObject {
     /// Edge each panel docks to when not floating.
     @Published var dockEdge: [PanelID: DockEdge] = [
-        .fileTree: .left, .console: .bottom, .problems: .bottom, .debugger: .right
+        .fileTree: .left, .console: .bottom, .problems: .bottom, .debugger: .right, .courseProgress: .right
     ]
     /// Active (selected) panel within each edge region.
     @Published var activePerEdge: [DockEdge: PanelID] = [.left: .fileTree, .bottom: .console]
@@ -456,10 +459,11 @@ struct TearLivePreview: View {
             Divider()
             Group {
                 switch id {
-                case .console:  ConsoleView()
-                case .problems: ProblemsView()
-                case .fileTree: FileTreeView()
-                case .debugger: DebuggerView()
+                case .console:        ConsoleView()
+                case .problems:       ProblemsView()
+                case .fileTree:       FileTreeView()
+                case .debugger:       DebuggerView()
+                case .courseProgress: CourseProgressView()
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)

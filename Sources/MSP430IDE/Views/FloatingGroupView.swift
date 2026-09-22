@@ -13,10 +13,11 @@ struct FloatingGroupView: View {
             tabStrip
             Group {
                 switch group.active {
-                case .console:  ConsoleView()
-                case .problems: ProblemsView()
-                case .fileTree: FileTreeView()
-                case .debugger: DebuggerView()
+                case .console:        ConsoleView()
+                case .problems:       ProblemsView()
+                case .fileTree:       FileTreeView()
+                case .debugger:       DebuggerView()
+                case .courseProgress: CourseProgressView()
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)

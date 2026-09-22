@@ -19,6 +19,7 @@ final class MenuState: ObservableObject {
     @Published var isDebugging = false
     @Published var debugStopped = false
     @Published var openTabCount = 0
+    @Published var hasCourseProgress = false
 
     @MainActor
     func bind(to app: AppState) {
@@ -31,5 +32,6 @@ final class MenuState: ObservableObject {
         app.$isDebugging.removeDuplicates().assign(to: &$isDebugging)
         app.$debugSessionState.map { $0 == .stopped }.removeDuplicates().assign(to: &$debugStopped)
         app.editor.$openTabs.map(\.count).removeDuplicates().assign(to: &$openTabCount)
+        app.$courseProgress.map { $0 != nil }.removeDuplicates().assign(to: &$hasCourseProgress)
     }
 }

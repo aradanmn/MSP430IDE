@@ -1,6 +1,22 @@
 import SwiftUI
 import AppKit
 
+/// Diagram/illustration files (see course `diagrams/*.html`) are animated
+/// HTML/SVG meant to be viewed in a real browser — the IDE has no rendering
+/// engine for them, so opening one launches it externally instead of loading
+/// it into an editor tab.
+private func opensExternally(_ url: URL) -> Bool {
+    ["html", "svg"].contains(url.pathExtension.lowercased())
+}
+
+private func openTreeFile(_ url: URL, appState: AppState) {
+    if opensExternally(url) {
+        NSWorkspace.shared.open(url)
+    } else {
+        appState.selectFile(url)
+    }
+}
+
 struct FileTreeView: View {
     @EnvironmentObject var appState: AppState
 
@@ -33,7 +49,7 @@ struct FileTreeView: View {
                 guard let id = newID, let root = appState.workspaceRoot else { return }
                 let nodes = FileNode.buildTree(from: appState.displayFiles, root: root)
                 if let url = lookupURL(in: nodes, id: id) {
-                    appState.selectFile(url)
+                    openTreeFile(url, appState: appState)
                 }
             }
         )
@@ -95,7 +111,9 @@ private struct FileTreeRow: View {
                 NSWorkspace.shared.activateFileViewerSelecting([folderURL])
             }
         } else if let url = node.url {
-            Button("Open") { appState.selectFile(url) }
+            Button(opensExternally(url) ? "Open in Browser" : "Open") {
+                openTreeFile(url, appState: appState)
+            }
             Divider()
             Button("Reveal in Finder") {
                 NSWorkspace.shared.activateFileViewerSelecting([url])
@@ -117,9 +135,26 @@ private struct FileTreeRow: View {
     /// (composed, since SF Symbols has no `folder.badge.hammer`).
     /// Row icon. Sub-projects get a folder with a small chip badge
     /// (composed, since SF Symbols has no `folder.badge.cpu`) — echoing
-    /// the app icon's microcontroller motif.
+    /// the app icon's microcontroller motif. Course exercises/quizzes also
+    /// get a course-progress badge (top-trailing, so it never collides with
+    /// the sub-project chip badge at bottom-trailing).
     @ViewBuilder
     private var icon: some View {
+        baseIcon
+            .overlay(alignment: .topTrailing) {
+                if let badgeIcon = progressBadgeIcon {
+                    Image(systemName: badgeIcon)
+                        .font(.system(size: 7, weight: .bold))
+                        .foregroundStyle(.white)
+                        .padding(1.5)
+                        .background(Circle().fill(progressBadgeColor))
+                        .offset(x: 3, y: -2)
+                }
+            }
+    }
+
+    @ViewBuilder
+    private var baseIcon: some View {
         if isProjectFolder {
             Image(systemName: "folder.fill")
                 .foregroundStyle(Color.teal)
@@ -137,6 +172,41 @@ private struct FileTreeRow: View {
         }
     }
 
+    /// The lesson slug (e.g. "lesson-01-architecture") for this node, found
+    /// by scanning its root-relative path — `FileNode.id` is already that
+    /// relative path string, so no URL reconstruction is needed.
+    private var lessonSlugForNode: String? {
+        node.id.split(separator: "/").first(where: { $0.hasPrefix("lesson-") }).map(String.init)
+    }
+
+    /// Status string ("graded"/"passed"/"in_progress"/…) for this node, if
+    /// it's an exercise folder (`ex1`, `ex2`, …) or a `quiz.toml` file with
+    /// a matching entry in `appState.courseProgress`.
+    private var progressStatus: String? {
+        guard let progress = appState.courseProgress,
+              let slug = lessonSlugForNode,
+              let lesson = progress.lessons[slug] else { return nil }
+        if node.isFolder {
+            return lesson.exercises[node.name]?.status
+        }
+        if node.name == "quiz.toml" {
+            return lesson.quiz?.status
+        }
+        return nil
+    }
+
+    private var progressBadgeIcon: String? {
+        switch progressStatus {
+        case "graded", "passed": return "checkmark"
+        case "in_progress":      return "ellipsis"
+        default:                 return nil
+        }
+    }
+
+    private var progressBadgeColor: Color {
+        progressStatus == "in_progress" ? Color.orange : Color.green
+    }
+
     private var iconName: String {
         if node.isFolder { return "folder" }
         switch node.url?.pathExtension.lowercased() {
@@ -148,6 +218,7 @@ private struct FileTreeRow: View {
         case "toml": return "doc.badge.gearshape"
         case "json": return "curlybraces"
         case "ld": return "memorychip"
+        case "html", "svg": return "play.rectangle.fill"
         default: return "doc"
         }
     }
@@ -162,6 +233,7 @@ private struct FileTreeRow: View {
         case "toml": return .brown
         case "json": return .yellow
         case "ld": return .pink
+        case "html", "svg": return .teal
         default: return .secondary
         }
     }

@@ -27,6 +27,16 @@ final class AppState: ObservableObject {
     /// by per-project sources.exclude.
     @Published var displayFiles: [URL] = []
 
+    /// Course progress data (lessons/exercises/quiz status, concept gaps),
+    /// non-nil only when the open workspace is the MSP430 handheld course
+    /// repo (detected via `ROADMAP.md` at the root — see `CourseProgressStore`).
+    @Published var courseProgress: CourseProgress?
+    /// Whether `progress/progress.json` has uncommitted local changes —
+    /// drives the Course Progress panel's "Save & Push" button.
+    @Published var progressHasLocalChanges: Bool = false
+    /// The workspace root when it's the course repo; nil otherwise.
+    private var courseRepoRoot: URL?
+
     @Published var workspace: WorkspaceState = WorkspaceState()
     @Published var activeConfig: String = "Debug"
     @Published var selectedFile: URL?
@@ -438,6 +448,9 @@ final class AppState: ObservableObject {
         self.buffers = [:]
         self.selectedFile = nil
         self.consoleOutput = ""
+        self.courseProgress = nil
+        self.progressHasLocalChanges = false
+        self.courseRepoRoot = nil
         editor.closeAll()
 
         // Load root as a sub-project if it has its own config
@@ -457,6 +470,12 @@ final class AppState: ObservableObject {
 
         // Scan all displayable files for the tree
         displayFiles = ProjectLoader.scanForDisplay(at: canonical)
+
+        // Course progress (only meaningful for the MSP430 handheld course repo)
+        if CourseProgressStore.isCourseRepo(canonical) {
+            courseRepoRoot = canonical
+            reloadCourseProgress()
+        }
 
         // Workspace state lives at the workspace root, not per sub-project
         let wsState = loadWorkspaceState(at: canonical)
@@ -680,6 +699,9 @@ final class AppState: ObservableObject {
         activeConfig = "Debug"
         consoleOutput = ""
         statusMessage = "Ready"
+        courseProgress = nil
+        progressHasLocalChanges = false
+        courseRepoRoot = nil
         return true
     }
 
@@ -863,6 +885,61 @@ final class AppState: ObservableObject {
             url.path.hasPrefix(prefix) ? String(url.path.dropFirst(prefix.count)) : url.path
         }
         return (editor.openTabs.map(rel), editor.activeTab.map(rel))
+    }
+
+    // MARK: - Course Progress
+
+    /// Reloads `progress/progress.json` from disk and refreshes whether it
+    /// has uncommitted local changes. Called after opening the course repo
+    /// and after anything writes to progress.json (a quiz, a sync/push).
+    func reloadCourseProgress() {
+        guard let root = courseRepoRoot else { return }
+        courseProgress = CourseProgressStore.load(workspaceRoot: root)
+        progressHasLocalChanges = GitService.hasUncommittedChanges(
+            repoRoot: root, path: CourseProgressStore.relativePath
+        )
+    }
+
+    /// Pulls the course repo (picking up progress recorded elsewhere, e.g.
+    /// during a Claude grading session), then reloads local progress state.
+    func syncProgress() async {
+        guard let root = courseRepoRoot else { return }
+        appendConsole("\n→ Pulling latest course progress…\n")
+        let result = await GitService.pull(repoRoot: root) { [weak self] line in
+            Task { @MainActor [weak self] in self?.appendConsole(line) }
+        }
+        switch result {
+        case .success:
+            statusMessage = "Progress synced"
+        case .failure(let err):
+            appendConsole("✗ \(err.localizedDescription)\n")
+            statusMessage = "Sync failed"
+        }
+        reloadCourseProgress()
+    }
+
+    /// Commits and pushes `progress/progress.json` — the explicit,
+    /// user-initiated write path (never automatic; see the plan's Git
+    /// write-behavior decision).
+    func savePushProgress() async {
+        guard let root = courseRepoRoot else { return }
+        appendConsole("\n→ Saving course progress…\n")
+        let result = await GitService.commitAndPush(
+            repoRoot: root,
+            paths: [CourseProgressStore.relativePath],
+            message: "Update course progress"
+        ) { [weak self] line in
+            Task { @MainActor [weak self] in self?.appendConsole(line) }
+        }
+        switch result {
+        case .success:
+            appendConsole("✓ Progress pushed.\n")
+            statusMessage = "Progress pushed"
+        case .failure(let err):
+            appendConsole("✗ \(err.localizedDescription)\n")
+            statusMessage = "Push failed"
+        }
+        reloadCourseProgress()
     }
 
     // MARK: - Console

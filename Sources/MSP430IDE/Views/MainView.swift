@@ -82,6 +82,13 @@ struct EditorPaneContent: View {
         ["md", "markdown", "mdown"].contains(url.pathExtension.lowercased())
     }
 
+    /// A lesson's self-graded concept-check quiz — rendered interactively
+    /// instead of as raw TOML. Matched by exact filename, not extension, so
+    /// other `.toml` files (msp430.toml, etc.) keep the normal code view.
+    private var isQuiz: Bool {
+        url.lastPathComponent == "quiz.toml"
+    }
+
     private var previewBinding: Binding<Bool> {
         Binding(
             get: { previewByURL[url] ?? true },
@@ -92,7 +99,10 @@ struct EditorPaneContent: View {
     var body: some View {
         VStack(spacing: 0) {
             FileHeader(url: url, buffer: buffer, isMarkdown: isMarkdown, previewMode: previewBinding)
-            if isMarkdown && (previewByURL[url] ?? true) {
+            if isQuiz {
+                QuizView(buffer: buffer)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if isMarkdown && (previewByURL[url] ?? true) {
                 MarkdownView(buffer: buffer)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {

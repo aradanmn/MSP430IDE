@@ -213,7 +213,8 @@ enum ProjectLoader {
     static let displayExtensions: Set<String> = [
         "c", "h", "s", "asm",
         "txt", "text", "md", "markdown", "mdown",
-        "toml", "json", "ld"
+        "toml", "json", "ld",
+        "html", "svg"
     ]
 
     static let defaultDisplayExcludes: [String] = [

@@ -154,5 +154,19 @@ struct AppCommands: Commands {
                 panels.showPanel(.debugger)
             }
         }
+
+        CommandMenu("Course") {
+            Button("Show Course Progress") {
+                panels.showPanel(.courseProgress)
+            }
+            .disabled(!menu.hasCourseProgress)
+
+            Divider()
+
+            Button("Pull Latest Progress") {
+                Task { await appState.syncProgress() }
+            }
+            .disabled(!menu.hasCourseProgress)
+        }
     }
 }
