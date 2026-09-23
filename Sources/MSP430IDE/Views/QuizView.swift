@@ -233,7 +233,13 @@ struct QuizView: View {
                 .foregroundStyle(.tertiary)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .onAppear(perform: recordResult)
+        .onAppear {
+            // Deferred: recordResult mutates published AppState, and doing
+            // that synchronously from onAppear (mid-layout) triggers
+            // AppKit's "NSHostingView is being laid out reentrantly" fault
+            // and a skipped layout pass.
+            Task { @MainActor in recordResult() }
+        }
     }
 
     private func recordResult() {
