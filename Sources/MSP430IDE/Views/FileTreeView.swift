@@ -87,6 +87,7 @@ private struct FileTreeRow: View {
             Text(node.name)
                 .lineLimit(1)
                 .truncationMode(.middle)
+                .help(node.name)   // full name on hover for deep/truncated rows
                 .fontWeight(isSubproject ? .semibold : .regular)
             if let url = node.url, appState.buffers[url]?.isDirty == true {
                 Spacer()

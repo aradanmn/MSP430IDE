@@ -27,7 +27,13 @@ struct MainView: View {
     private var dockLayout: some View {
         HSplitView {
             if panels.hasPanels(at: .left) {
-                DockRegionView(edge: .left).frame(minWidth: 160, idealWidth: 240)
+                // 260pt floor: the editor's layoutPriority squeezes docks to
+                // their minimum, so minWidth IS the default width in practice.
+                // 160 was too narrow for file names and panel content, and
+                // even 220 truncated nested course folders like
+                // lesson-01-architecture (the HIG specifies no numbers;
+                // system-app sidebars run ~220–320pt).
+                DockRegionView(edge: .left).frame(minWidth: 260, idealWidth: 300)
             }
             VSplitView {
                 if panels.hasPanels(at: .top) {
@@ -42,7 +48,7 @@ struct MainView: View {
             }
             .layoutPriority(1)
             if panels.hasPanels(at: .right) {
-                DockRegionView(edge: .right).frame(minWidth: 160, idealWidth: 280)
+                DockRegionView(edge: .right).frame(minWidth: 220, idealWidth: 300)
             }
         }
     }
