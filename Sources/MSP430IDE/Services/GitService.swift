@@ -6,7 +6,10 @@ import Foundation
 /// Flasher) rather than a second subprocess abstraction.
 enum GitService {
     static func pull(repoRoot: URL, onOutput: @escaping (String) -> Void = { _ in }) async -> Result<String, Error> {
-        await run(["pull"], repoRoot: repoRoot, onOutput: onOutput)
+        // --autostash: the course repo routinely has in-progress exercise
+        // edits; a bare `git pull` (especially with pull.rebase configured)
+        // refuses to run with unstaged changes anywhere in the tree.
+        await run(["pull", "--autostash"], repoRoot: repoRoot, onOutput: onOutput)
     }
 
     static func commitAndPush(
@@ -22,25 +25,11 @@ enum GitService {
         return await run(["push"], repoRoot: repoRoot, onOutput: onOutput)
     }
 
-    /// Synchronous by design — a single `git status` on one path is fast
-    /// enough to call from the main actor at well-defined points (after
-    /// loading progress, after a quiz writes it), not on every view redraw.
-    static func hasUncommittedChanges(repoRoot: URL, path: String) -> Bool {
-        let proc = Process()
-        proc.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-        proc.arguments = ["git", "status", "--porcelain", "--", path]
-        proc.currentDirectoryURL = repoRoot
-        let outPipe = Pipe()
-        proc.standardOutput = outPipe
-        proc.standardError = Pipe()
-        do {
-            try proc.run()
-        } catch {
-            return false
-        }
-        proc.waitUntilExit()
-        let data = outPipe.fileHandleForReading.readDataToEndOfFile()
-        let out = String(data: data, encoding: .utf8) ?? ""
+    /// Async like every other git call here: measured at 15–60 ms per run,
+    /// which is a dropped frame or three when called from the main actor.
+    static func hasUncommittedChanges(repoRoot: URL, path: String) async -> Bool {
+        let result = await run(["status", "--porcelain", "--", path], repoRoot: repoRoot, onOutput: { _ in })
+        guard case .success(let out) = result else { return false }
         return !out.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 

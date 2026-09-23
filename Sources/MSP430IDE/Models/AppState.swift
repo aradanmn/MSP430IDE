@@ -895,9 +895,12 @@ final class AppState: ObservableObject {
     func reloadCourseProgress() {
         guard let root = courseRepoRoot else { return }
         courseProgress = CourseProgressStore.load(workspaceRoot: root)
-        progressHasLocalChanges = GitService.hasUncommittedChanges(
-            repoRoot: root, path: CourseProgressStore.relativePath
-        )
+        Task { [weak self] in
+            let dirty = await GitService.hasUncommittedChanges(
+                repoRoot: root, path: CourseProgressStore.relativePath
+            )
+            self?.progressHasLocalChanges = dirty
+        }
     }
 
     /// Pulls the course repo (picking up progress recorded elsewhere, e.g.
