@@ -49,12 +49,16 @@ struct CourseProgressView: View {
         }
     }
 
+    // Stacked vertically: the default dock width (~160pt) can't fit both
+    // labeled buttons side by side — an HStack wraps the titles mid-word.
     private var toolbar: some View {
-        HStack(spacing: 10) {
+        VStack(alignment: .leading, spacing: 6) {
             Button {
                 Task { await appState.syncProgress() }
             } label: {
                 Label("Pull Latest", systemImage: "arrow.down.circle")
+                    .lineLimit(1)
+                    .fixedSize()
             }
             .buttonStyle(.borderless)
             .help("Pull the latest progress.json from git")
@@ -63,15 +67,16 @@ struct CourseProgressView: View {
                 Task { await appState.savePushProgress() }
             } label: {
                 Label("Save & Push", systemImage: "arrow.up.circle.fill")
+                    .lineLimit(1)
+                    .fixedSize()
             }
             .buttonStyle(.borderless)
             .disabled(!appState.progressHasLocalChanges)
             .help(appState.progressHasLocalChanges
                   ? "Commit and push progress.json"
                   : "No local progress changes to push")
-
-            Spacer()
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, 10)
         .padding(.vertical, 6)
     }
@@ -96,11 +101,15 @@ struct CourseProgressView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
+    // Badges stack vertically: a horizontal row of them overflows the
+    // default dock width and SwiftUI wraps the labels character-by-character.
     private func lessonRow(slug: String, lesson: LessonProgress) -> some View {
         VStack(alignment: .leading, spacing: 3) {
             Text(slug)
                 .font(.callout.weight(.semibold))
-            HStack(spacing: 10) {
+                .lineLimit(1)
+                .truncationMode(.middle)
+            VStack(alignment: .leading, spacing: 2) {
                 ForEach(lesson.exercises.keys.sorted(), id: \.self) { exKey in
                     if let ex = lesson.exercises[exKey] {
                         statusBadge(label: exKey, status: ex.status, detail: ex.grade)
@@ -124,6 +133,8 @@ struct CourseProgressView: View {
                 Text(detail).font(.caption2).foregroundStyle(.secondary)
             }
         }
+        .lineLimit(1)
+        .fixedSize()
     }
 
     private func badgeIcon(for status: String) -> String {
