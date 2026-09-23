@@ -42,7 +42,10 @@ struct MSP430IDEApp: App {
                 .environmentObject(appState)
                 .environmentObject(panels)
                 .frame(minWidth: 720, minHeight: 480)
-                .onAppear {
+                // Explicit strong capture of `panels`: the nested callbacks
+                // capture it weakly, and Swift warns when a weak capture
+                // shadows an implicit strong one in the enclosing closure.
+                .onAppear { [panels] in
                     // Let pop-out windows share the same app state.
                     panels.attach(appState: appState)
                     // Whenever a new build produces diagnostics, flip the
