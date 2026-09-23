@@ -33,20 +33,51 @@ enum GitService {
         return !out.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
+    /// True if `path` either has uncommitted changes OR has local commits
+    /// that haven't reached the upstream branch yet. The latter matters
+    /// after a commit succeeds but a push fails (network hiccup, diverged
+    /// remote) — `hasUncommittedChanges` alone would report "clean" (the
+    /// file IS committed) and disable the retry affordance even though the
+    /// commit never actually reached the remote.
+    static func needsPush(repoRoot: URL, path: String) async -> Bool {
+        if await hasUncommittedChanges(repoRoot: repoRoot, path: path) { return true }
+        let ahead = await run(["log", "--oneline", "@{u}..HEAD", "--", path], repoRoot: repoRoot, onOutput: { _ in })
+        guard case .success(let out) = ahead else { return false }
+        return !out.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    /// Accumulates a `Process`'s combined stdout/stderr safely. `run()`'s
+    /// `onLine` callback is invoked by two independent `Pipe`
+    /// `readabilityHandler`s (stdout, stderr) that aren't guaranteed to run
+    /// serialized, so a plain `var` mutated from both would be a data race.
+    private final class OutputAccumulator: @unchecked Sendable {
+        private var text = ""
+        private let lock = NSLock()
+        func append(_ s: String) {
+            lock.lock(); defer { lock.unlock() }
+            text += s
+        }
+        var current: String {
+            lock.lock(); defer { lock.unlock() }
+            return text
+        }
+    }
+
     private static func run(_ args: [String], repoRoot: URL, onOutput: @escaping (String) -> Void) async -> Result<String, Error> {
-        var collected = ""
+        let collected = OutputAccumulator()
         let exit = await ProcessRunner().run(
             executable: URL(fileURLWithPath: "/usr/bin/env"),
             arguments: ["git"] + args,
             workingDir: repoRoot,
             environment: nil,
             onLine: { line in
-                collected += line
+                collected.append(line)
                 onOutput(line)
             }
         )
-        if exit == 0 { return .success(collected) }
-        return .failure(GitError.exitCode(Int(exit), command: args.joined(separator: " "), output: collected))
+        let output = collected.current
+        if exit == 0 { return .success(output) }
+        return .failure(GitError.exitCode(Int(exit), command: args.joined(separator: " "), output: output))
     }
 }
 

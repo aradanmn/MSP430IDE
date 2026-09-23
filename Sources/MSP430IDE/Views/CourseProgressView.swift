@@ -61,6 +61,7 @@ struct CourseProgressView: View {
                     .fixedSize()
             }
             .buttonStyle(.borderless)
+            .disabled(appState.isSyncingProgress)
             .help("Pull the latest progress.json from git")
 
             Button {
@@ -71,10 +72,17 @@ struct CourseProgressView: View {
                     .fixedSize()
             }
             .buttonStyle(.borderless)
-            .disabled(!appState.progressHasLocalChanges)
-            .help(appState.progressHasLocalChanges
+            .disabled(!appState.progressNeedsPush || appState.isSyncingProgress)
+            .help(appState.progressNeedsPush
                   ? "Commit and push progress.json"
                   : "No local progress changes to push")
+
+            if appState.isSyncingProgress {
+                HStack(spacing: 4) {
+                    ProgressView().controlSize(.small)
+                    Text("Working…").font(.caption2).foregroundStyle(.secondary)
+                }
+            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, 10)
@@ -126,8 +134,8 @@ struct CourseProgressView: View {
 
     private func statusBadge(label: String, status: String, detail: String?) -> some View {
         HStack(spacing: 4) {
-            Image(systemName: badgeIcon(for: status))
-                .foregroundStyle(badgeColor(for: status))
+            Image(systemName: ProgressStatus.icon(for: status))
+                .foregroundStyle(ProgressStatus.color(for: status))
             Text(label).font(.caption2)
             if let detail {
                 Text(detail).font(.caption2).foregroundStyle(.secondary)
@@ -135,22 +143,6 @@ struct CourseProgressView: View {
         }
         .lineLimit(1)
         .fixedSize()
-    }
-
-    private func badgeIcon(for status: String) -> String {
-        switch status {
-        case "graded", "passed": return "checkmark.circle.fill"
-        case "in_progress": return "circle.lefthalf.filled"
-        default: return "circle"
-        }
-    }
-
-    private func badgeColor(for status: String) -> Color {
-        switch status {
-        case "graded", "passed": return .green
-        case "in_progress": return .orange
-        default: return .secondary
-        }
     }
 
     private func unresolvedGaps(_ progress: CourseProgress) -> [ConceptGap] {

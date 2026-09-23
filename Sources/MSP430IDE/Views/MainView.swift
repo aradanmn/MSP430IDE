@@ -106,7 +106,15 @@ struct EditorPaneContent: View {
         VStack(spacing: 0) {
             FileHeader(url: url, buffer: buffer, isMarkdown: isMarkdown, previewMode: previewBinding)
             if isQuiz {
+                // Unlike CodeEditorView/MarkdownView below (deliberately
+                // NOT .id(url)'d, to preserve scroll/cursor state across tab
+                // switches), QuizView has no such state worth preserving —
+                // and without a per-URL identity, switching between two
+                // already-open quiz.toml tabs would keep showing the first
+                // quiz's in-progress @State instead of resetting for the
+                // newly-selected file.
                 QuizView(buffer: buffer)
+                    .id(url)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else if isMarkdown && (previewByURL[url] ?? true) {
                 MarkdownView(buffer: buffer)

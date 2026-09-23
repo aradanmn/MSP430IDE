@@ -198,15 +198,16 @@ private struct FileTreeRow: View {
     }
 
     private var progressBadgeIcon: String? {
-        switch progressStatus {
-        case "graded", "passed": return "checkmark"
-        case "in_progress":      return "ellipsis"
-        default:                 return nil
+        switch ProgressStatus.category(for: progressStatus) {
+        case .done:       return "checkmark"
+        case .failed:     return "xmark"
+        case .inProgress: return "ellipsis"
+        case .none:       return nil
         }
     }
 
     private var progressBadgeColor: Color {
-        progressStatus == "in_progress" ? Color.orange : Color.green
+        ProgressStatus.color(for: progressStatus)
     }
 
     private var iconName: String {

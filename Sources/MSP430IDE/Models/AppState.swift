@@ -31,9 +31,17 @@ final class AppState: ObservableObject {
     /// non-nil only when the open workspace is the MSP430 handheld course
     /// repo (detected via `ROADMAP.md` at the root — see `CourseProgressStore`).
     @Published var courseProgress: CourseProgress?
-    /// Whether `progress/progress.json` has uncommitted local changes —
-    /// drives the Course Progress panel's "Save & Push" button.
-    @Published var progressHasLocalChanges: Bool = false
+    /// Whether `progress/progress.json` has anything to push — either
+    /// uncommitted local changes, or local commits not yet on the remote
+    /// (so a prior push failure still shows as needing a retry). Drives the
+    /// Course Progress panel's "Save & Push" button.
+    @Published var progressNeedsPush: Bool = false
+    /// Guards `syncProgress`/`savePushProgress` against re-entrant taps
+    /// (e.g. a double-click on "Save & Push") — both operate on the same
+    /// git working tree, so running either concurrently with itself or the
+    /// other risks a `.git/index.lock` collision or a spurious failure on
+    /// the second call even though the first already succeeded.
+    @Published var isSyncingProgress: Bool = false
     /// The workspace root when it's the course repo; nil otherwise.
     private var courseRepoRoot: URL?
 
@@ -449,7 +457,7 @@ final class AppState: ObservableObject {
         self.selectedFile = nil
         self.consoleOutput = ""
         self.courseProgress = nil
-        self.progressHasLocalChanges = false
+        self.progressNeedsPush = false
         self.courseRepoRoot = nil
         editor.closeAll()
 
@@ -700,7 +708,7 @@ final class AppState: ObservableObject {
         consoleOutput = ""
         statusMessage = "Ready"
         courseProgress = nil
-        progressHasLocalChanges = false
+        progressNeedsPush = false
         courseRepoRoot = nil
         return true
     }
@@ -890,23 +898,25 @@ final class AppState: ObservableObject {
     // MARK: - Course Progress
 
     /// Reloads `progress/progress.json` from disk and refreshes whether it
-    /// has uncommitted local changes. Called after opening the course repo
-    /// and after anything writes to progress.json (a quiz, a sync/push).
+    /// needs pushing. Called after opening the course repo and after
+    /// anything writes to progress.json (a quiz, a sync/push).
     func reloadCourseProgress() {
         guard let root = courseRepoRoot else { return }
         courseProgress = CourseProgressStore.load(workspaceRoot: root)
         Task { [weak self] in
-            let dirty = await GitService.hasUncommittedChanges(
+            let needsPush = await GitService.needsPush(
                 repoRoot: root, path: CourseProgressStore.relativePath
             )
-            self?.progressHasLocalChanges = dirty
+            self?.progressNeedsPush = needsPush
         }
     }
 
     /// Pulls the course repo (picking up progress recorded elsewhere, e.g.
     /// during a Claude grading session), then reloads local progress state.
     func syncProgress() async {
-        guard let root = courseRepoRoot else { return }
+        guard let root = courseRepoRoot, !isSyncingProgress else { return }
+        isSyncingProgress = true
+        defer { isSyncingProgress = false }
         appendConsole("\n→ Pulling latest course progress…\n")
         let result = await GitService.pull(repoRoot: root) { [weak self] line in
             Task { @MainActor [weak self] in self?.appendConsole(line) }
@@ -925,7 +935,9 @@ final class AppState: ObservableObject {
     /// user-initiated write path (never automatic; see the plan's Git
     /// write-behavior decision).
     func savePushProgress() async {
-        guard let root = courseRepoRoot else { return }
+        guard let root = courseRepoRoot, !isSyncingProgress else { return }
+        isSyncingProgress = true
+        defer { isSyncingProgress = false }
         appendConsole("\n→ Saving course progress…\n")
         let result = await GitService.commitAndPush(
             repoRoot: root,

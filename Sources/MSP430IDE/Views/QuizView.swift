@@ -25,6 +25,8 @@ struct QuizView: View {
     @State private var checked = false
     @State private var missedPrompts: [String] = []
     @State private var finished = false
+    @State private var droppedQuestionCount = 0
+    @State private var saveError: String?
 
     var body: some View {
         Group {
@@ -55,17 +57,26 @@ struct QuizView: View {
             }
             lessonSlug = quizTable["lesson"]?.stringValue ?? ""
             let rawQuestions = quizTable["questions"]?.arrayValue ?? []
-            questions = rawQuestions.compactMap { item -> QuizQuestion? in
+            var valid: [QuizQuestion] = []
+            var dropped = 0
+            for item in rawQuestions {
                 guard let t = item.tableValue,
                       let id = t["id"]?.intValue,
                       let prompt = t["prompt"]?.stringValue,
-                      let choices = t["choices"]?.stringArray,
-                      let answer = t["answer"]?.intValue,
-                      let explain = t["explain"]?.stringValue else { return nil }
-                return QuizQuestion(id: id, prompt: prompt, choices: choices, answer: answer, explain: explain)
+                      let choices = t["choices"]?.stringArray, !choices.isEmpty,
+                      let answer = t["answer"]?.intValue, choices.indices.contains(answer),
+                      let explain = t["explain"]?.stringValue else {
+                    dropped += 1
+                    continue
+                }
+                valid.append(QuizQuestion(id: id, prompt: prompt, choices: choices, answer: answer, explain: explain))
             }
+            questions = valid
+            droppedQuestionCount = dropped
             if questions.isEmpty {
-                parseError = "No valid questions found in this quiz file."
+                parseError = dropped > 0
+                    ? "None of this file's \(dropped) question(s) are valid — check for missing fields, empty choices, or an out-of-range answer index."
+                    : "No valid questions found in this quiz file."
             }
         } catch {
             parseError = "Couldn't parse quiz.toml: \(error.localizedDescription)"
@@ -92,6 +103,12 @@ struct QuizView: View {
 
     private var questionScreen: some View {
         VStack(alignment: .leading, spacing: 18) {
+            if droppedQuestionCount > 0 {
+                Text("⚠ \(droppedQuestionCount) question(s) in this file were skipped (missing fields, empty choices, or an out-of-range answer index).")
+                    .font(.caption)
+                    .foregroundStyle(.orange)
+            }
+
             Text("Question \(currentIndex + 1) of \(questions.count)")
                 .font(.caption)
                 .foregroundStyle(.secondary)
@@ -228,9 +245,17 @@ struct QuizView: View {
                 }
                 .frame(maxWidth: 420, alignment: .leading)
             }
-            Text("Saved to progress.json locally. Use the Course Progress panel to push it.")
-                .font(.caption2)
-                .foregroundStyle(.tertiary)
+            if let saveError {
+                Text(saveError)
+                    .font(.caption2)
+                    .foregroundStyle(.red)
+                    .multilineTextAlignment(.center)
+                    .frame(maxWidth: 420)
+            } else {
+                Text("Saved to progress.json locally. Use the Course Progress panel to push it.")
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+            }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .onAppear {
@@ -247,14 +272,33 @@ struct QuizView: View {
         let correct = questions.count - missedPrompts.count
         let df = DateFormatter()
         df.dateFormat = "yyyy-MM-dd"
-        var progress = CourseProgressStore.load(workspaceRoot: root)
+        df.locale = Locale(identifier: "en_US_POSIX")
+
+        var progress: CourseProgress
+        switch CourseProgressStore.loadResult(workspaceRoot: root) {
+        case .corrupted:
+            // Don't blindly overwrite a corrupted file (e.g. a `git pull`
+            // merge conflict) with a near-empty struct — that would erase
+            // every prior graded exercise and concept gap.
+            saveError = "progress.json couldn't be read (possibly a merge conflict or invalid JSON) — this result wasn't saved, to avoid overwriting your existing progress. Fix progress.json, then retake the quiz."
+            return
+        case .notFound:
+            progress = CourseProgress()
+        case .loaded(let p):
+            progress = p
+        }
+
         progress.recordQuizResult(
             lesson: lessonSlug,
             score: "\(correct)/\(questions.count)",
             missed: missedPrompts,
             date: df.string(from: Date())
         )
-        CourseProgressStore.save(progress, to: root)
-        appState.reloadCourseProgress()
+        if CourseProgressStore.save(progress, to: root) {
+            saveError = nil
+            appState.reloadCourseProgress()
+        } else {
+            saveError = "Couldn't write progress.json (check disk space or file permissions) — this result wasn't saved."
+        }
     }
 }
