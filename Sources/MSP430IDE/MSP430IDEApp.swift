@@ -28,6 +28,12 @@ struct MSP430IDEApp: App {
         appState = state
         panels = PanelManager()
         _menu = ObservedObject(wrappedValue: state.menu)
+        // Dev/automation hook, same idiom as MSP430IDE_VALIDATE above:
+        // open a workspace folder at launch without going through the
+        // NSOpenPanel (which UI automation can't type into).
+        if let path = ProcessInfo.processInfo.environment["MSP430IDE_OPEN"] {
+            state.openProject(at: URL(fileURLWithPath: path))
+        }
     }
 
     var body: some Scene {
