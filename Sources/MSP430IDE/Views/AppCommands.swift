@@ -97,17 +97,25 @@ struct AppCommands: Commands {
             Divider()
 
             Menu("Build Mode") {
+                // Conditional Label vs Text: systemImage "" is not a valid
+                // symbol and logs an AppKit fault at startup.
                 Button {
                     appState.setBuildMode(.native)
                 } label: {
-                    Label("Native (compile directly)",
-                          systemImage: menu.buildMode == .native ? "checkmark" : "")
+                    if menu.buildMode == .native {
+                        Label("Native (compile directly)", systemImage: "checkmark")
+                    } else {
+                        Text("Native (compile directly)")
+                    }
                 }
                 Button {
                     appState.setBuildMode(.external)
                 } label: {
-                    Label("External (use Makefile)",
-                          systemImage: menu.buildMode == .external ? "checkmark" : "")
+                    if menu.buildMode == .external {
+                        Label("External (use Makefile)", systemImage: "checkmark")
+                    } else {
+                        Text("External (use Makefile)")
+                    }
                 }
             }
             .disabled(!menu.hasProject)
