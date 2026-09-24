@@ -35,7 +35,10 @@ struct EditorTearPreview: View {
         VStack(spacing: 0) {
             HStack(spacing: 6) {
                 Image(systemName: "doc.text").font(.caption).foregroundStyle(.secondary)
-                Text(filename).font(.system(.caption, design: .monospaced))
+                Text(filename)
+                    .font(.system(.caption, design: .monospaced))
+                    .lineLimit(1)
+                    .truncationMode(.middle)
                 Spacer()
             }
             .padding(.horizontal, 10)

@@ -24,13 +24,12 @@ struct AppToolbar: ToolbarContent {
                         }
                     }
                 } label: {
-                    HStack(spacing: 4) {
-                        Image(systemName: "slider.horizontal.3")
-                        Text(appState.activeConfig)
-                    }
+                    Label(appState.activeConfig, systemImage: "slider.horizontal.3")
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                        .frame(minWidth: 60, maxWidth: 200)
                 }
                 .help("Active build configuration")
-                .fixedSize()
             }
         }
 

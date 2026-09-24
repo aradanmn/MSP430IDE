@@ -38,6 +38,9 @@ private struct TabItem: View {
             Text(url.lastPathComponent)
                 .font(.system(.caption, design: .monospaced))
                 .foregroundStyle(isActive ? .primary : .secondary)
+                .lineLimit(1)
+                .truncationMode(.middle)
+                .help(url.lastPathComponent)
 
             if isDirty {
                 Circle()
@@ -59,6 +62,9 @@ private struct TabItem: View {
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 4)
+        // Long filenames elide (like Xcode's tabs) instead of growing the
+        // tab without bound.
+        .frame(maxWidth: Metrics.tabMaxWidth)
         .frame(maxHeight: .infinity)
         .background {
             if isActive {

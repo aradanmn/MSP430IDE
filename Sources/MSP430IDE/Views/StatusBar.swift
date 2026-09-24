@@ -14,6 +14,7 @@ struct StatusBar: View {
                 .lineLimit(1)
                 .truncationMode(.tail)
                 .layoutPriority(-1)
+                .help(appState.statusMessage)
 
             Spacer(minLength: 8)
 
@@ -33,6 +34,7 @@ struct StatusBar: View {
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
                         .layoutPriority(1)
+                        .help(proj.name)
                     Divider().frame(height: 12)
                 }
                 Label(proj.mcu, systemImage: "cpu")

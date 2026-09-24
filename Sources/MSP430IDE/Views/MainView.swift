@@ -144,6 +144,9 @@ struct FileHeader: View {
                 .foregroundStyle(.secondary)
             Text(url.lastPathComponent)
                 .font(.system(.body, design: .monospaced))
+                .lineLimit(1)
+                .truncationMode(.middle)
+                .help(url.lastPathComponent)
             if buffer.isDirty {
                 Text("•").foregroundStyle(.orange).bold()
             }
@@ -287,6 +290,7 @@ struct ToolchainStatusView: View {
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
                 .truncationMode(.middle)
+                .help(path ?? "not found")
         }
     }
 }

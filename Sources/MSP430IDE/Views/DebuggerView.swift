@@ -63,6 +63,9 @@ struct DebuggerView: View {
                     Text("\(file.lastPathComponent):\(line)")
                         .font(.system(size: 11, design: .monospaced))
                         .foregroundStyle(.primary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                        .help("\(file.lastPathComponent):\(line)")
                     Spacer()
                 }
                 .padding(.horizontal, 8)
@@ -120,11 +123,16 @@ struct DebuggerView: View {
                                 Text(v.name)
                                     .font(.system(size: 11, design: .monospaced))
                                     .foregroundStyle(.primary)
+                                    .lineLimit(1)
+                                    .truncationMode(.tail)
+                                    .help(v.name)
                                     .frame(width: 80, alignment: .leading)
                                 Text(v.value)
                                     .font(.system(size: 11, design: .monospaced))
                                     .foregroundStyle(.secondary)
                                     .lineLimit(1)
+                                    .truncationMode(.middle)
+                                    .help(v.value)
                                 Spacer()
                             }
                             .padding(.horizontal, 8)
@@ -158,10 +166,16 @@ struct DebuggerView: View {
                                         Text(frame.function)
                                             .font(.system(size: 11, design: .monospaced))
                                             .foregroundStyle(.primary)
+                                            .lineLimit(1)
+                                            .truncationMode(.middle)
+                                            .help(frame.function)
                                         if let f = frame.file, let l = frame.line {
                                             Text("\(f.lastPathComponent):\(l)")
                                                 .font(.system(size: 10))
                                                 .foregroundStyle(.secondary)
+                                                .lineLimit(1)
+                                                .truncationMode(.middle)
+                                                .help("\(f.lastPathComponent):\(l)")
                                         }
                                     }
                                     Spacer()
@@ -231,6 +245,9 @@ struct DebuggerView: View {
                                     Text("\(url.lastPathComponent):\(line)")
                                         .font(.system(size: 11, design: .monospaced))
                                         .foregroundStyle(.primary)
+                                        .lineLimit(1)
+                                        .truncationMode(.middle)
+                                        .help("\(url.lastPathComponent):\(line)")
                                 }
                                 .buttonStyle(.plain)
                                 Spacer()
