@@ -42,6 +42,7 @@ struct DockRegionView: View {
                 .buttonStyle(.borderless)
                 .padding(.trailing, 10)
                 .help("Clear console + diagnostics")
+                .accessibilityLabel("Clear console and diagnostics")
             }
         }
         .frame(height: Metrics.barHeight)

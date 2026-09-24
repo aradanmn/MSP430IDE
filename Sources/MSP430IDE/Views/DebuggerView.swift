@@ -259,6 +259,7 @@ struct DebuggerView: View {
                                         .foregroundStyle(.secondary)
                                 }
                                 .buttonStyle(.plain)
+                                .accessibilityLabel("Delete breakpoint at \(url.lastPathComponent) line \(line)")
                             }
                             .padding(.horizontal, 8)
                             .padding(.vertical, 4)

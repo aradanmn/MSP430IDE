@@ -39,6 +39,7 @@ struct FloatingGroupView: View {
             .buttonStyle(.borderless)
             .padding(.trailing, 10)
             .help("Dock these panels back into the main window")
+            .accessibilityLabel("Dock panels back into the main window")
         }
         .frame(height: Metrics.barHeight)
         .background(.bar)

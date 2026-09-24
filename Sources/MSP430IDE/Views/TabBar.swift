@@ -56,6 +56,7 @@ private struct TabItem: View {
                 }
                 .buttonStyle(.borderless)
                 .help("Close (⌘W)")
+                .accessibilityLabel("Close \(url.lastPathComponent)")
             } else {
                 Color.clear.frame(width: 14, height: 14)
             }
