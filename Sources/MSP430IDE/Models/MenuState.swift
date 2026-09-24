@@ -20,6 +20,10 @@ final class MenuState: ObservableObject {
     @Published var debugStopped = false
     @Published var openTabCount = 0
     @Published var hasCourseProgress = false
+    /// Selectable build configs (empty for external/Makefile projects,
+    /// which have nothing to pick).
+    @Published var configNames: [String] = []
+    @Published var activeConfig = ""
 
     @MainActor
     func bind(to app: AppState) {
@@ -33,5 +37,10 @@ final class MenuState: ObservableObject {
         app.$debugSessionState.map { $0 == .stopped }.removeDuplicates().assign(to: &$debugStopped)
         app.editor.$openTabs.map(\.count).removeDuplicates().assign(to: &$openTabCount)
         app.$courseProgress.map { $0 != nil }.removeDuplicates().assign(to: &$hasCourseProgress)
+        app.$project.map { proj -> [String] in
+            guard let proj, proj.mode == .native else { return [] }
+            return proj.configNames
+        }.removeDuplicates().assign(to: &$configNames)
+        app.$activeConfig.removeDuplicates().assign(to: &$activeConfig)
     }
 }

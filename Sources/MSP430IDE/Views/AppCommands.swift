@@ -96,6 +96,24 @@ struct AppCommands: Commands {
 
             Divider()
 
+            // Toolbar/menu parity (HIG: every toolbar command must also
+            // exist in the menu bar, since toolbars can be hidden): the
+            // toolbar's config picker needs this menu equivalent.
+            Menu("Configuration") {
+                ForEach(menu.configNames, id: \.self) { name in
+                    Button {
+                        appState.setActiveConfig(name)
+                    } label: {
+                        if name == menu.activeConfig {
+                            Label(name, systemImage: "checkmark")
+                        } else {
+                            Text(name)
+                        }
+                    }
+                }
+            }
+            .disabled(menu.configNames.isEmpty)
+
             Menu("Build Mode") {
                 // Conditional Label vs Text: systemImage "" is not a valid
                 // symbol and logs an AppKit fault at startup.
@@ -140,6 +158,13 @@ struct AppCommands: Commands {
                 appState.debugContinue()
             }
             .disabled(!menu.debugStopped)
+
+            // Toolbar/menu parity: the toolbar shows Pause while the
+            // target is running; it needs a menu equivalent too.
+            Button("Pause") {
+                appState.debugPause()
+            }
+            .disabled(!menu.isDebugging || menu.debugStopped)
 
             Button("Step Over") {
                 appState.debugStepOver()

@@ -75,6 +75,8 @@ final class PanelManager: ObservableObject {
 
     private var groupWindows: [UUID: FloatingPanelWindowController] = [:]
     private var tearPreviewWindow: NSWindow?
+    private var tearKeyMonitor: Any?
+    private var tearCancelled = false
     private var lastFloatingSize: [PanelID: NSSize] = [:]
 
     private var draggedGroupID: UUID?
@@ -255,9 +257,25 @@ final class PanelManager: ObservableObject {
         tearPreviewWindow = window
         window.orderFront(nil)
         moveTearPreview(to: NSEvent.mouseLocation)
+        // Escape cancels the tear instead of committing it on release.
+        tearCancelled = false
+        tearKeyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            guard event.keyCode == 53 else { return event }  // Escape
+            MainActor.assumeIsolated {
+                guard let self, self.tearPreviewWindow != nil else { return }
+                self.tearPreviewWindow?.orderOut(nil)
+                self.tearPreviewWindow = nil
+                self.hideDockHighlight()
+                self.tearCancelled = true
+            }
+            return nil
+        }
     }
 
     func moveTearPreview(to screenPoint: NSPoint) {
+        // No-op once Escape has cancelled the tear (the drag gesture keeps
+        // reporting movement until the mouse is released).
+        guard tearPreviewWindow != nil else { return }
         tearPreviewWindow?.setFrameTopLeftPoint(NSPoint(x: screenPoint.x - 40, y: screenPoint.y + 14))
         // Show where it would dock if released over the main window.
         if let mw = mainWindow, mw.frame.contains(screenPoint) {
@@ -270,9 +288,17 @@ final class PanelManager: ObservableObject {
     /// Finish tearing a tab. Over a floating window → merge; over the main
     /// window → dock to the nearest edge; elsewhere → float in a new window.
     func endTear(commit: Bool, id: PanelID, at screenPoint: NSPoint) {
+        if let monitor = tearKeyMonitor {
+            NSEvent.removeMonitor(monitor)
+            tearKeyMonitor = nil
+        }
         tearPreviewWindow?.orderOut(nil)
         tearPreviewWindow = nil
         hideDockHighlight()
+        if tearCancelled {
+            tearCancelled = false
+            return
+        }
         guard commit else { return }
 
         if let targetID = groupWindows.first(where: { $0.value.window.frame.contains(screenPoint) })?.key,

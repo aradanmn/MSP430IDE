@@ -57,7 +57,6 @@ struct AppToolbar: ToolbarContent {
                 } label: {
                     Label("Stop", systemImage: "stop.fill")
                 }
-                .foregroundStyle(.red)
                 .help("Stop debugging (⌘⇧D)")
 
                 if appState.debugSessionState == .stopped {

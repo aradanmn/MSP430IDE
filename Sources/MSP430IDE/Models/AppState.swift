@@ -178,6 +178,8 @@ final class AppState: ObservableObject {
 
     private var editorWindows: [URL: EditorWindowController] = [:]
     private var editorTearPreview: NSWindow?
+    private var editorTearKeyMonitor: Any?
+    private var editorTearCancelled = false
     private var lastEditorSize: [URL: NSSize] = [:]
     private static let defaultEditorWindowSize = NSSize(width: 700, height: 460)
 
@@ -284,6 +286,19 @@ final class AppState: ObservableObject {
         editorTearPreview = window
         window.orderFront(nil)
         moveEditorTearPreview(to: NSEvent.mouseLocation)
+        // Escape cancels the tear instead of committing it on release
+        // (mirrors PanelManager's tear cancel).
+        editorTearCancelled = false
+        editorTearKeyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            guard event.keyCode == 53 else { return event }  // Escape
+            MainActor.assumeIsolated {
+                guard let self, self.editorTearPreview != nil else { return }
+                self.editorTearPreview?.orderOut(nil)
+                self.editorTearPreview = nil
+                self.editorTearCancelled = true
+            }
+            return nil
+        }
     }
 
     func moveEditorTearPreview(to screenPoint: NSPoint) {
@@ -291,8 +306,16 @@ final class AppState: ObservableObject {
     }
 
     func endEditorTear(commit: Bool, url: URL, at screenPoint: NSPoint) {
+        if let monitor = editorTearKeyMonitor {
+            NSEvent.removeMonitor(monitor)
+            editorTearKeyMonitor = nil
+        }
         editorTearPreview?.orderOut(nil)
         editorTearPreview = nil
+        if editorTearCancelled {
+            editorTearCancelled = false
+            return
+        }
         if commit { popOutEditor(url, at: screenPoint) }
     }
 
