@@ -162,7 +162,7 @@ struct FileHeader: View {
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 6)
-        .frame(minHeight: 28)
+        .frame(minHeight: Metrics.barHeight)
         .background(.bar)
         .overlay(alignment: .bottom) {
             Divider()
@@ -176,7 +176,7 @@ private struct PreviewSourceToggle: View {
     @Binding var preview: Bool
 
     var body: some View {
-        HStack(spacing: 2) {
+        HStack(spacing: Metrics.spacingXS) {
             segment("Preview", on: preview) { preview = true }
             segment("Source", on: !preview) { preview = false }
         }
@@ -190,8 +190,11 @@ private struct PreviewSourceToggle: View {
                 .font(.caption)
                 .padding(.horizontal, 9)
                 .padding(.vertical, 2)
-                .background(on ? Color.accentColor.opacity(0.85) : Color.clear)
-                .foregroundStyle(on ? Color.white : Color.secondary)
+                // AppKit's selection pairing instead of hardcoded
+                // white-on-accent, which goes illegible on light accents
+                // (yellow). These two colors are guaranteed to contrast.
+                .background(on ? Color(nsColor: .selectedContentBackgroundColor) : Color.clear)
+                .foregroundStyle(on ? Color(nsColor: .alternateSelectedControlTextColor) : Color.secondary)
                 .clipShape(RoundedRectangle(cornerRadius: 4))
                 .contentShape(Rectangle())
         }
@@ -203,7 +206,7 @@ struct WelcomeView: View {
     @EnvironmentObject var appState: AppState
 
     var body: some View {
-        VStack(spacing: 16) {
+        VStack(spacing: Metrics.spacingL) {
             Image(systemName: "cpu")
                 .font(.system(size: 72))
                 .foregroundStyle(.tint)

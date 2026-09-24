@@ -53,8 +53,8 @@ struct StatusBar: View {
                     .layoutPriority(1)
             }
         }
-        .padding(.horizontal, 28)
-        .padding(.vertical, 4)
+        .padding(.horizontal, Metrics.spacingM)
+        .padding(.vertical, Metrics.spacingXS)
         .background(.bar)
         .overlay(alignment: .top) {
             Divider()

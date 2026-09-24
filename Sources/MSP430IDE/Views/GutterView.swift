@@ -13,7 +13,7 @@ final class GutterState: ObservableObject {
 
     var width: CGFloat {
         let digits = max(2, String(totalLines).count)
-        return CGFloat(digits) * 8 + 22  // extra room for the diagnostic dot
+        return CGFloat(digits) * 8 + 24  // extra room for the diagnostic dot
     }
 }
 
@@ -41,8 +41,10 @@ struct GutterView: View {
                             .padding(.leading, 2)
                     } else if isBkpt {
                         let confirmed = appState.isBreakpointConfirmed(file: url ?? URL(fileURLWithPath: ""), line: line.number)
-                        BreakpointGlyph(armed: confirmed, size: 13)
-                            .padding(.leading, 1)
+                        // Same 12pt as the diagnostic/current-line icons it
+                        // sits beside — a 13pt glyph reads as jitter.
+                        BreakpointGlyph(armed: confirmed, size: Metrics.gutterGlyphSize)
+                            .padding(.leading, 2)
                             .help(confirmed ? "Breakpoint" : "Breakpoint (hardware limit — not armed)")
                     } else if let sev {
                         Image(systemName: gutterIcon(for: sev))

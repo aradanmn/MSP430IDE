@@ -84,7 +84,7 @@ struct QuizView: View {
     }
 
     private func errorState(_ message: String) -> some View {
-        VStack(spacing: 8) {
+        VStack(spacing: Metrics.spacingS) {
             Image(systemName: "exclamationmark.triangle.fill")
                 .font(.system(size: 28))
                 .foregroundStyle(.orange)
@@ -102,7 +102,7 @@ struct QuizView: View {
     private var current: QuizQuestion { questions[currentIndex] }
 
     private var questionScreen: some View {
-        VStack(alignment: .leading, spacing: 18) {
+        VStack(alignment: .leading, spacing: Metrics.spacingL) {
             if droppedQuestionCount > 0 {
                 Text("⚠ \(droppedQuestionCount) question(s) in this file were skipped (missing fields, empty choices, or an out-of-range answer index).")
                     .font(.caption)
@@ -228,7 +228,7 @@ struct QuizView: View {
 
     private var scoreScreen: some View {
         let correct = questions.count - missedPrompts.count
-        return VStack(spacing: 14) {
+        return VStack(spacing: Metrics.spacingL) {
             Image(systemName: missedPrompts.isEmpty ? "star.fill" : "checkmark.circle")
                 .font(.system(size: 40))
                 .foregroundStyle(missedPrompts.isEmpty ? Color.yellow : Color.accentColor)

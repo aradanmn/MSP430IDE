@@ -20,7 +20,7 @@ struct DebuggerView: View {
     }
 
     private var idlePlaceholder: some View {
-        VStack(spacing: 8) {
+        VStack(spacing: Metrics.spacingS) {
             Image(systemName: "ant.circle")
                 .font(.system(size: 32))
                 .foregroundStyle(.secondary)
@@ -80,7 +80,7 @@ struct DebuggerView: View {
                     Button(title) { selectedTab = idx }
                         .buttonStyle(.plain)
                         .font(.system(size: 11))
-                        .padding(.horizontal, 10)
+                        .padding(.horizontal, Metrics.spacingM)
                         .padding(.vertical, 5)
                         .background(selectedTab == idx ? Color(nsColor: .selectedControlColor).opacity(0.5) : Color.clear)
                         .contentShape(Rectangle())
@@ -99,7 +99,7 @@ struct DebuggerView: View {
     }
 
     private func errorView(_ msg: String) -> some View {
-        VStack(spacing: 8) {
+        VStack(spacing: Metrics.spacingS) {
             Image(systemName: "exclamationmark.triangle.fill")
                 .foregroundStyle(.red)
                 .font(.system(size: 24))
@@ -135,9 +135,9 @@ struct DebuggerView: View {
                                     .help(v.value)
                                 Spacer()
                             }
-                            .padding(.horizontal, 8)
-                            .padding(.vertical, 3)
-                            Divider().padding(.leading, 8)
+                            .padding(.horizontal, Metrics.spacingS)
+                            .padding(.vertical, Metrics.spacingXS)
+                            Divider().padding(.leading, Metrics.spacingS)
                         }
                     }
                 }
@@ -237,7 +237,7 @@ struct DebuggerView: View {
                         ForEach(allBkpts, id: \.1) { url, line in
                             let armed = appState.isBreakpointConfirmed(file: url, line: line)
                             HStack(spacing: 6) {
-                                BreakpointGlyph(armed: armed, size: 9)
+                                BreakpointGlyph(armed: armed, size: Metrics.gutterGlyphSize)
                                     .help(armed ? "Breakpoint" : "Breakpoint (hardware limit — not armed)")
                                 Button {
                                     appState.jumpToBreakpoint(file: url, line: line)

@@ -148,7 +148,7 @@ private struct FileTreeRow: View {
                     Image(systemName: badgeIcon)
                         .font(.system(size: 7, weight: .bold))
                         .foregroundStyle(.white)
-                        .padding(1.5)
+                        .padding(Metrics.iconBadgePadding)
                         .background(Circle().fill(progressBadgeColor))
                         .offset(x: 3, y: -2)
                 }
@@ -164,7 +164,7 @@ private struct FileTreeRow: View {
                     Image(systemName: "cpu.fill")
                         .font(.system(size: 7, weight: .bold))
                         .foregroundStyle(.white)
-                        .padding(2)
+                        .padding(Metrics.iconBadgePadding)
                         .background(Circle().fill(Color.indigo))
                         .offset(x: 3, y: 2)
                 }

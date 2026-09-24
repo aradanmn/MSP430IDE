@@ -44,7 +44,7 @@ struct DockRegionView: View {
                 .help("Clear console + diagnostics")
             }
         }
-        .frame(height: 30)
+        .frame(height: Metrics.barHeight)
         .background(.bar)
         .overlay(alignment: .bottom) {
             Rectangle().fill(Color(nsColor: .separatorColor)).frame(height: 1)
@@ -74,19 +74,7 @@ private struct DockTab: View {
                     .foregroundStyle(active ? .primary : .secondary)
                 if id == .problems { DiagnosticCountBadge() }
             }
-            .padding(.horizontal, 12)
-            .frame(maxHeight: .infinity)
-            .background {
-                if active {
-                    Color(nsColor: .selectedContentBackgroundColor).opacity(0.18)
-                } else if hovering {
-                    Color(nsColor: .windowBackgroundColor).opacity(0.5)
-                }
-            }
-            .overlay(alignment: .bottom) {
-                if active { Rectangle().fill(Color.accentColor).frame(height: 2) }
-            }
-            .contentShape(Rectangle())
+            .tabChrome(active: active, hovering: hovering)
         }
         .buttonStyle(.plain)
         .onHover { hovering = $0 }

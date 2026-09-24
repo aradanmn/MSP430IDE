@@ -40,7 +40,7 @@ struct FloatingGroupView: View {
             .padding(.trailing, 10)
             .help("Dock these panels back into the main window")
         }
-        .frame(height: 30)
+        .frame(height: Metrics.barHeight)
         .background(.bar)
         .overlay(alignment: .bottom) {
             Rectangle().fill(Color(nsColor: .separatorColor)).frame(height: 1)
@@ -68,21 +68,7 @@ private struct FloatingTab: View {
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(active ? .primary : .secondary)
             }
-            .padding(.horizontal, 12)
-            .frame(maxHeight: .infinity)
-            .background {
-                if active {
-                    Color(nsColor: .selectedContentBackgroundColor).opacity(0.18)
-                } else if hovering {
-                    Color(nsColor: .windowBackgroundColor).opacity(0.5)
-                }
-            }
-            .overlay(alignment: .bottom) {
-                if active {
-                    Rectangle().fill(Color.accentColor).frame(height: 2)
-                }
-            }
-            .contentShape(Rectangle())
+            .tabChrome(active: active, hovering: hovering)
         }
         .buttonStyle(.plain)
         .onHover { hovering = $0 }

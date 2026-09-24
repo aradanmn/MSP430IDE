@@ -12,7 +12,7 @@ struct TabBar: View {
                 }
             }
         }
-        .frame(height: 30)
+        .frame(height: Metrics.barHeight)
         .background(.bar)
         .overlay(alignment: .bottom) {
             Divider()
@@ -60,30 +60,14 @@ private struct TabItem: View {
                 Color.clear.frame(width: 14, height: 14)
             }
         }
-        .padding(.horizontal, 10)
         .padding(.vertical, 4)
         // Long filenames elide (like Xcode's tabs) instead of growing the
         // tab without bound.
         .frame(maxWidth: Metrics.tabMaxWidth)
-        .frame(maxHeight: .infinity)
-        .background {
-            if isActive {
-                Color(nsColor: .selectedContentBackgroundColor).opacity(0.18)
-            } else if hovering {
-                Color(nsColor: .windowBackgroundColor).opacity(0.5)
-            }
-        }
+        .tabChrome(active: isActive, hovering: hovering)
         .overlay(alignment: .trailing) {
             Divider()
         }
-        .overlay(alignment: .bottom) {
-            if isActive {
-                Rectangle()
-                    .fill(Color.accentColor)
-                    .frame(height: 2)
-            }
-        }
-        .contentShape(Rectangle())
         .onTapGesture {
             appState.editor.select(url)
             appState.selectFile(url)

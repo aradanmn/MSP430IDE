@@ -42,7 +42,7 @@ struct EditorTearPreview: View {
                 Spacer()
             }
             .padding(.horizontal, 10)
-            .frame(height: 26)
+            .frame(height: Metrics.barHeight)
             .background(.bar)
             Divider()
             ScrollView {

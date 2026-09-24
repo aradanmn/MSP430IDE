@@ -10,7 +10,7 @@ import SwiftUI
 /// glyph never bleeds outside its frame.
 struct BreakpointGlyph: View {
     var armed: Bool = true
-    var size: CGFloat = 12
+    var size: CGFloat = Metrics.gutterGlyphSize
 
     var body: some View {
         ZStack {
