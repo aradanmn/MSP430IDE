@@ -143,6 +143,23 @@ struct ProjectModel: Equatable {
     var workspaceFile: URL { workspaceDir.appendingPathComponent("workspace.json") }
     var configURL: URL { rootURL.appendingPathComponent("msp430.toml") }
 
+    /// Filesystem/command-line-safe version of `name`, used for build
+    /// artifact filenames (the `.elf`, etc.) instead of the free-text
+    /// display name. Confirmed on real hardware: a project named with
+    /// spaces (e.g. "L01 Architecture & Toolchain — Example") built fine,
+    /// but flashing failed — `mspdebug`'s own "prog <path>" command is a
+    /// string it re-tokenizes internally by whitespace, so it silently
+    /// truncated the path at the first space and reported "no such file."
+    /// `name` itself is untouched everywhere else (console text, window
+    /// titles, status bar) — this only backs actual file paths.
+    var safeName: String {
+        let collapsed = name.replacingOccurrences(
+            of: "[^A-Za-z0-9_-]+", with: "-", options: .regularExpression
+        )
+        let trimmed = collapsed.trimmingCharacters(in: CharacterSet(charactersIn: "-"))
+        return trimmed.isEmpty ? "project" : trimmed
+    }
+
     func effectiveFlags(for configName: String) -> BuildFlags {
         guard let override = configs[configName] else { return defaults }
         return defaults.merged(with: override)

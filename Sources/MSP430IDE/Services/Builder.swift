@@ -18,7 +18,7 @@ struct Builder {
 
         let effective = project.effectiveFlags(for: configName)
         let supportPath = effectiveSupportPath()
-        let elfURL = project.buildDir.appendingPathComponent("\(project.name).elf")
+        let elfURL = project.buildDir.appendingPathComponent("\(project.safeName).elf")
 
         let mcuFlag = "-mmcu=\(project.mcu)"
         let defineFlags = effective.defines.map { "-D\($0)" }

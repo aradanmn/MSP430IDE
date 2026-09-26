@@ -1087,7 +1087,7 @@ final class AppState: ObservableObject {
         guard let mspdebugPath = toolchain.mspdebugPath else {
             appendConsole("✗ mspdebug not found.\n"); statusMessage = "mspdebug not found"; return
         }
-        let elf = proj.buildDir.appendingPathComponent("\(proj.name).elf")
+        let elf = proj.buildDir.appendingPathComponent("\(proj.safeName).elf")
         guard FileManager.default.fileExists(atPath: elf.path) else {
             appendConsole("✗ No build output at \(elf.path). Build (⌘B) first.\n")
             statusMessage = "Build before debugging"
@@ -1447,7 +1447,7 @@ final class AppState: ObservableObject {
                 statusMessage = "Flash failed"
                 return
             }
-            let elf = proj.buildDir.appendingPathComponent("\(proj.name).elf")
+            let elf = proj.buildDir.appendingPathComponent("\(proj.safeName).elf")
             guard FileManager.default.fileExists(atPath: elf.path) else {
                 appendConsole("✗ No build output. Build first.\n")
                 statusMessage = "Flash failed"
