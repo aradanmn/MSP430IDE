@@ -50,7 +50,13 @@ struct FileTreeView: View {
                 guard let id = newID, let root = appState.workspaceRoot else { return }
                 let nodes = FileNode.buildTree(from: appState.displayFiles, root: root)
                 if let url = lookupURL(in: nodes, id: id) {
-                    openTreeFile(url, appState: appState)
+                    // Deferred: List writes this binding mid-view-update, and
+                    // selectFile mutates a pile of published state — doing
+                    // that synchronously logs "Publishing changes from within
+                    // view updates" for every property it touches.
+                    Task { @MainActor in
+                        openTreeFile(url, appState: appState)
+                    }
                 }
             }
         )
