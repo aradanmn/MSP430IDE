@@ -122,7 +122,10 @@ struct EditorPaneContent: View {
             } else {
                 HStack(spacing: 0) {
                     GutterView(state: gutter, url: url)
-                    CodeEditorView(buffer: buffer, gutter: gutter, lsp: appState.lsp)
+                    CodeEditorView(
+                        buffer: buffer, gutter: gutter, lsp: appState.lsp,
+                        executionLine: appState.debugCurrentFile == url ? appState.debugCurrentLine : nil
+                    )
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)

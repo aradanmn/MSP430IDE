@@ -32,9 +32,18 @@ struct Builder {
         let runner = ProcessRunner()
         var objectFiles: [URL] = []
 
+        // Always emit DWARF. The debugger needs a line table for source-level
+        // stepping and file:line breakpoints; without one GDB's `step`/`next`
+        // degrade to "run until the function returns", which for a bare-metal
+        // main loop means running forever. Debug sections are not loaded into
+        // flash, so this costs nothing on the device.
+        let hasDebugFlag = effective.cflags.contains { $0.hasPrefix("-g") }
+        let cDebugFlags: [String] = hasDebugFlag ? [] : ["-g"]
+
         for src in project.sourceFiles {
             let obj = project.buildDir.appendingPathComponent(src.lastPathComponent + ".o")
             var args: [String] = [mcuFlag]
+            args += cDebugFlags
             args += effective.cflags
             args += defineFlags
             args += includeFlags
@@ -51,7 +60,14 @@ struct Builder {
             let asmflags: [String] = effective.asmflags.isEmpty
                 ? ["-x", "assembler-with-cpp", "-nostdlib"]
                 : effective.asmflags
+            // The msp430-elf-gcc 9.3 driver does not forward `-g` to `as` for
+            // assembler-with-cpp input, so `-g` alone yields no line table.
+            // Pass the assembler flag directly unless the project already does.
+            let hasAsmDebugFlag = (asmflags + effective.cflags).contains {
+                $0.hasPrefix("-Wa,") && ($0.contains("--gdwarf") || $0.contains(",-g"))
+            }
             var args: [String] = [mcuFlag]
+            if !hasAsmDebugFlag { args.append("-Wa,--gdwarf-2") }
             args += asmflags
             args += cflagsNoOpt
             args += defineFlags

@@ -997,6 +997,10 @@ final class AppState: ObservableObject {
     @Published var debugCurrentLine: Int? = nil
     @Published var debugStack: [StackFrame] = []
     @Published var debugLocals: [LocalVariable] = []
+    /// CPU registers for the selected frame, refreshed at every stop. GDB can
+    /// only read a remote MSP430's registers while the core is halted, so
+    /// these hold the last-stop values while the target is running.
+    @Published var debugRegisters: [RegisterValue] = []
     @Published var debugConsole: String = ""
     @Published var isDebugging: Bool = false
 
@@ -1008,6 +1012,7 @@ final class AppState: ObservableObject {
     private var gdbClient: GDBClient?
     private var mspdebugProcess: Process?
     private var gdbBreakpointMap: [String: Int] = [:]  // "path:line" → GDB bkpt#
+    private var gdbRegisterNames: [String] = []        // index = GDB register number
 
     func appendDebugConsole(_ s: String) {
         debugConsole += s
@@ -1101,6 +1106,15 @@ final class AppState: ObservableObject {
         appendDebugConsole("────────────────────────────────────────\n")
         appendDebugConsole("→ Starting debug session: \(proj.name) (\(proj.flash.driver))\n")
 
+        // Without a DWARF line table GDB can't map the PC to a source line:
+        // no current-line marker, no file:line breakpoints, and source-level
+        // stepping degrades to instruction stepping. Say so up front rather
+        // than letting the session look silently broken.
+        if !Self.elfHasLineTable(elf) {
+            appendDebugConsole("⚠ \(elf.lastPathComponent) has no source line info (stale build?). Rebuild with ⌘B for line highlighting and source stepping.\n")
+            statusMessage = "ELF has no line info — rebuild (⌘B)"
+        }
+
         // Start mspdebug GDB stub
         let srv = Process()
         srv.executableURL = mspdebugPath
@@ -1153,6 +1167,12 @@ final class AppState: ObservableObject {
             try await client.send("-target-select remote :2000")
             appendDebugConsole("→ Target connected\n")
 
+            // Register numbering is fixed for the session; fetch the names
+            // once so each stop only needs the (cheaper) values query.
+            if let names = try? await client.send("-data-list-register-names")["register-names"]?.array {
+                gdbRegisterNames = names.map { $0.string ?? "" }
+            }
+
             // Download the program to flash. A remote MSP430 target already
             // holds the program; we (re)load to guarantee the chip matches the
             // ELF we have symbols for.
@@ -1186,6 +1206,15 @@ final class AppState: ObservableObject {
         }
     }
 
+    /// True if the ELF carries a DWARF line table. Checks the section-name
+    /// string table for ".debug_line" — a cheap byte scan that avoids
+    /// parsing ELF headers, and cannot false-positive on program bytes
+    /// because a bare-metal MSP430 image never embeds that string.
+    private static func elfHasLineTable(_ url: URL) -> Bool {
+        guard let data = try? Data(contentsOf: url, options: .mappedIfSafe) else { return false }
+        return data.range(of: Data(".debug_line".utf8)) != nil
+    }
+
     func stopDebugging() async {
         let client = gdbClient
         _ = try? await client?.send("-gdb-exit")
@@ -1202,14 +1231,23 @@ final class AppState: ObservableObject {
         Task { _ = try? await client?.send("-exec-interrupt") }
     }
 
+    /// Source-level stepping needs a line table for the current PC. If the
+    /// stop frame carried no line (ELF built without DWARF, or PC in code
+    /// with no source), GDB's `step`/`next` would instead run until the
+    /// function returns — which for a bare-metal main loop is never. Fall
+    /// back to instruction stepping so the target always halts again.
+    private var stepByInstruction: Bool { debugCurrentLine == nil }
+
     func debugStepIn() {
         let client = gdbClient
-        Task { _ = try? await client?.send("-exec-step") }
+        let cmd = stepByInstruction ? "-exec-step-instruction" : "-exec-step"
+        Task { _ = try? await client?.send(cmd) }
     }
 
     func debugStepOver() {
         let client = gdbClient
-        Task { _ = try? await client?.send("-exec-next") }
+        let cmd = stepByInstruction ? "-exec-next-instruction" : "-exec-next"
+        Task { _ = try? await client?.send(cmd) }
     }
 
     func debugStepOut() {
@@ -1235,9 +1273,12 @@ final class AppState: ObservableObject {
 
     private func handleDebugStopped(_ event: StopEvent) {
         debugSessionState = .stopped
+        // Always overwrite the location: a stop with no frame (or a frame with
+        // no line info) must not leave last stop's file:line on screen or
+        // make stepping think source-level stepping is still possible.
+        debugCurrentFile = event.frame?.file
+        debugCurrentLine = event.frame?.line
         if let frame = event.frame {
-            debugCurrentFile = frame.file
-            debugCurrentLine = frame.line
             if let url = frame.file, let line = frame.line {
                 selectFile(url)
                 NotificationCenter.default.post(
@@ -1252,6 +1293,10 @@ final class AppState: ObservableObject {
 
     private func handleDebugRunning() {
         debugSessionState = .running
+        // The PC is moving; drop the halted-line marker (gutter arrow and
+        // editor band) until the next stop reports a fresh location.
+        debugCurrentFile = nil
+        debugCurrentLine = nil
     }
 
     private func handleDebugExited() {
@@ -1262,12 +1307,21 @@ final class AppState: ObservableObject {
         // Capture client on main actor before leaving it
         let client = gdbClient
         guard let client else { return }
-        // Fetch stack frames
-        if let stackResult = try? await client.send("-stack-list-frames"),
+        // Fetch stack frames. Hand-written assembly carries no CFI, so once
+        // GDB's unwinder runs past the last real return address it keeps
+        // inventing "??" frames from whatever RAM holds — hundreds of them.
+        // Cap the request (a G2553 has 512 bytes of RAM, so even a pathological
+        // stack can't hold 64 real frames) and stop at the first symbol-less,
+        // file-less frame after the innermost one.
+        if let stackResult = try? await client.send("-stack-list-frames 0 63"),
            let stackList = stackResult["stack"]?.array {
-            let frames: [StackFrame] = stackList.compactMap { item in
-                guard let frameDict = item.dict?["frame"]?.dict else { return nil }
-                return StackFrame.from(miDict: frameDict)
+            var frames: [StackFrame] = []
+            for item in stackList {
+                guard let frameDict = item.dict?["frame"]?.dict else { continue }
+                let frame = StackFrame.from(miDict: frameDict)
+                let unknown = frame.function == "??" && frame.file == nil
+                if unknown && !frames.isEmpty { break }
+                frames.append(frame)
             }
             debugStack = frames
         }
@@ -1288,6 +1342,24 @@ final class AppState: ObservableObject {
             }
             debugLocals = locals
         }
+        // Fetch registers (hex) and flag those that changed since the last stop
+        if let regResult = try? await client.send("-data-list-register-values x"),
+           let regList = regResult["register-values"]?.array {
+            let previous = Dictionary(uniqueKeysWithValues: debugRegisters.map { ($0.id, $0.value) })
+            let regs: [RegisterValue] = regList.compactMap { item -> RegisterValue? in
+                guard let d = item.dict,
+                      let number = d["number"]?.string.flatMap(Int.init),
+                      let raw = d["value"]?.string else { return nil }
+                // GDB pads its register table with unnamed slots; skip them.
+                guard number < gdbRegisterNames.count else { return nil }
+                let name = gdbRegisterNames[number]
+                guard !name.isEmpty else { return nil }
+                let value = RegisterValue.normaliseHex(raw)
+                let changed = previous[number].map { $0 != value } ?? false
+                return RegisterValue(id: number, name: name.uppercased(), value: value, changed: changed)
+            }
+            debugRegisters = regs
+        }
     }
 
     private func cleanupDebugSession() async {
@@ -1296,6 +1368,7 @@ final class AppState: ObservableObject {
         mspdebugProcess?.terminate()
         mspdebugProcess = nil
         gdbBreakpointMap = [:]
+        gdbRegisterNames = []
         debugSessionState = .idle
         isDebugging = false
         onDebugActiveChanged?(false)
@@ -1303,6 +1376,7 @@ final class AppState: ObservableObject {
         debugCurrentLine = nil
         debugStack = []
         debugLocals = []
+        debugRegisters = []
     }
 
     /// Recompute the displayed `diagnostics`/`diagnosticsInOrder` by merging

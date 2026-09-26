@@ -5,6 +5,9 @@ struct CodeEditorView: NSViewRepresentable {
     @ObservedObject var buffer: TextBuffer
     let gutter: GutterState
     var lsp: LSPClient?
+    /// 1-based line the debugger is halted on in this buffer, or nil. Drawn
+    /// as a full-width band behind the text (paired with the gutter arrow).
+    var executionLine: Int? = nil
 
     func makeCoordinator() -> Coordinator {
         Coordinator(buffer: buffer, gutter: gutter, lsp: lsp)
@@ -60,6 +63,7 @@ struct CodeEditorView: NSViewRepresentable {
         }
 
         context.coordinator.attach(textView: textView, scrollView: scrollView)
+        context.coordinator.applyExecutionHighlight(line: executionLine)
 
         // Restore saved cursor + scroll position. Deferred so layout finishes
         // before we attempt to scroll to a specific origin.
@@ -102,6 +106,7 @@ struct CodeEditorView: NSViewRepresentable {
             let origin = buffer.savedScrollOrigin
             let len = (tv.string as NSString).length
             tv.setSelectedRange(NSRange(location: min(sel.location, len), length: 0))
+            coord.applyExecutionHighlight(line: executionLine)
             Task { @MainActor [weak scrollView, weak tv] in
                 guard let sv = scrollView, tv != nil else { return }
                 sv.contentView.scroll(to: origin)
@@ -123,6 +128,7 @@ struct CodeEditorView: NSViewRepresentable {
             tv.setSelectedRange(NSRange(location: min(prev.location, len), length: 0))
             context.coordinator.scheduleRecompute()
         }
+        coord.applyExecutionHighlight(line: executionLine)
     }
 
     final class Coordinator: NSObject, NSTextViewDelegate {
@@ -156,6 +162,39 @@ struct CodeEditorView: NSViewRepresentable {
 
         func undoManager(for view: NSTextView) -> UndoManager? {
             editorUndoManager
+        }
+
+        // MARK: - Execution line highlight
+
+        /// Line currently painted, so repeated SwiftUI updates are no-ops.
+        private var highlightedExecutionLine: Int? = nil
+
+        /// Paint (or clear) the debugger's current-line band. Uses a layout
+        /// manager *temporary* attribute rather than a text-storage attribute:
+        /// it never dirties the buffer, survives re-highlighting (which only
+        /// rewrites storage attributes), and — because the range includes the
+        /// line terminator — TextKit fills the whole line fragment to the
+        /// container edge, giving a full-width band like Xcode's.
+        func applyExecutionHighlight(line: Int?, force: Bool = false) {
+            guard let tv = textView, let lm = tv.layoutManager else { return }
+            guard force || line != highlightedExecutionLine else { return }
+            highlightedExecutionLine = line
+
+            let ns = tv.string as NSString
+            let full = NSRange(location: 0, length: ns.length)
+            lm.removeTemporaryAttribute(.backgroundColor, forCharacterRange: full)
+
+            guard let line, line >= 1 else { return }
+            var current = 1
+            var target: NSRange? = nil
+            ns.enumerateSubstrings(in: full, options: [.byLines, .substringNotRequired]) { _, _, enclosing, stop in
+                if current == line { target = enclosing; stop.pointee = true }
+                current += 1
+            }
+            guard let range = target else { return }
+            // Same hue as the gutter arrow; translucent so syntax colours read.
+            let band = NSColor.systemYellow.withAlphaComponent(0.18)
+            lm.addTemporaryAttribute(.backgroundColor, value: band, forCharacterRange: range)
         }
 
         func attach(textView: NSTextView, scrollView: NSScrollView) {
@@ -245,6 +284,9 @@ struct CodeEditorView: NSViewRepresentable {
             if let storage = tv.textStorage {
                 HighlighterRegistry.highlighter(for: buffer.url).highlight(storage: storage)
             }
+            // Edits shift the temporary attribute with the text; re-anchor it
+            // to the line number so the band stays on the debugger's line.
+            applyExecutionHighlight(line: highlightedExecutionLine, force: true)
             scheduleRecompute()
             // Auto-offer completion right after a member-access dot.
             let loc = tv.selectedRange().location

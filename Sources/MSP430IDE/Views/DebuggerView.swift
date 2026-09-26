@@ -48,12 +48,15 @@ struct DebuggerView: View {
 
     private var runningView: some View {
         VStack(spacing: 0) {
+            registersPane
             breakpointsPane
         }
     }
 
     private var stoppedView: some View {
         VStack(spacing: 0) {
+            registersPane
+
             // Location header
             if let file = appState.debugCurrentFile, let line = appState.debugCurrentLine {
                 HStack(spacing: 4) {
@@ -110,6 +113,67 @@ struct DebuggerView: View {
         .padding()
     }
 
+    /// CPU registers, pinned above the location/tab area. Values refresh at
+    /// every stop (breakpoint, step, pause); GDB cannot read a remote MSP430's
+    /// registers while the core is running, so the grid dims and shows the
+    /// last-stop values until the target halts again.
+    private var registersPane: some View {
+        let isRunning = appState.debugSessionState == .running
+        let regs = appState.debugRegisters
+        // Adaptive columns: each cell is "R12 0xF800"-sized, so the grid flows
+        // to two columns at the panel's minimum width and more when wider.
+        let columns = [GridItem(.adaptive(minimum: 96), spacing: Metrics.spacingS, alignment: .leading)]
+
+        return VStack(spacing: 0) {
+            HStack {
+                Text("Registers")
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(.secondary)
+                Spacer()
+                if isRunning {
+                    Text(regs.isEmpty ? "target running" : "target running — pause to refresh")
+                        .font(.system(size: 10))
+                        .foregroundStyle(.tertiary)
+                }
+            }
+            .padding(.horizontal, Metrics.spacingS)
+            .padding(.vertical, Metrics.spacingXS)
+            .background(Color(nsColor: .controlBackgroundColor))
+            Divider()
+
+            if regs.isEmpty {
+                Text(isRunning ? "Pause or hit a breakpoint to read registers"
+                               : "No register data")
+                    .foregroundStyle(.secondary)
+                    .font(.caption)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, Metrics.spacingM)
+            } else {
+                LazyVGrid(columns: columns, alignment: .leading, spacing: Metrics.spacingXS) {
+                    ForEach(regs) { reg in
+                        HStack(spacing: Metrics.spacingXS) {
+                            Text(reg.name)
+                                .font(.system(size: 11, weight: .medium, design: .monospaced))
+                                .foregroundStyle(.secondary)
+                                .frame(width: 26, alignment: .leading)
+                            Text(reg.value)
+                                .font(.system(size: 11, design: .monospaced))
+                                .foregroundStyle(reg.changed && !isRunning ? Color.orange : Color.primary)
+                        }
+                        .fixedSize()
+                        .help("\(reg.name) = \(reg.value)")
+                        .accessibilityElement(children: .combine)
+                        .accessibilityLabel("\(reg.name) \(reg.value)")
+                    }
+                }
+                .padding(.horizontal, Metrics.spacingS)
+                .padding(.vertical, Metrics.spacingS)
+                .opacity(isRunning ? 0.5 : 1)
+            }
+            Divider()
+        }
+    }
+
     private var variablesPane: some View {
         Group {
             if appState.debugLocals.isEmpty {
@@ -158,10 +222,14 @@ struct DebuggerView: View {
                                 appState.selectDebugFrame(frame)
                             } label: {
                                 HStack(spacing: 6) {
+                                    // Min width keeps single-digit frames aligned; fixedSize
+                                    // lets "#100" grow instead of wrapping onto two lines.
                                     Text("#\(frame.id)")
                                         .font(.system(size: 10, design: .monospaced))
                                         .foregroundStyle(.tertiary)
-                                        .frame(width: 24, alignment: .trailing)
+                                        .lineLimit(1)
+                                        .fixedSize()
+                                        .frame(minWidth: 24, alignment: .trailing)
                                     VStack(alignment: .leading, spacing: 1) {
                                         Text(frame.function)
                                             .font(.system(size: 11, design: .monospaced))
