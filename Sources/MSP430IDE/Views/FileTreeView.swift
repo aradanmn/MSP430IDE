@@ -218,32 +218,11 @@ private struct FileTreeRow: View {
 
     private var iconName: String {
         if node.isFolder { return "folder" }
-        switch node.url?.pathExtension.lowercased() {
-        case "c": return "c.square"
-        case "h": return "h.square"
-        case "s", "asm": return "s.square"
-        case "md", "markdown", "mdown": return "doc.richtext"
-        case "txt", "text": return "doc.plaintext"
-        case "toml": return "doc.badge.gearshape"
-        case "json": return "curlybraces"
-        case "ld": return "memorychip"
-        case "html", "svg": return "play.rectangle.fill"
-        default: return "doc"
-        }
+        return node.url?.fileIconName ?? "doc"
     }
 
     private var iconColor: Color {
         if node.isFolder { return .secondary }
-        switch node.url?.pathExtension.lowercased() {
-        case "c": return .blue
-        case "h": return .purple
-        case "s", "asm": return .orange
-        case "md", "markdown", "mdown": return .green
-        case "toml": return .brown
-        case "json": return .yellow
-        case "ld": return .pink
-        case "html", "svg": return .teal
-        default: return .secondary
-        }
+        return node.url?.fileIconColor ?? .secondary
     }
 }
