@@ -157,6 +157,7 @@ struct AppCommands: Commands {
             Button("Continue") {
                 appState.debugContinue()
             }
+            .keyboardShortcut(Self.functionKey(5), modifiers: [])
             .disabled(!menu.debugStopped)
 
             // Toolbar/menu parity: the toolbar shows Pause while the
@@ -169,16 +170,33 @@ struct AppCommands: Commands {
             Button("Step Over") {
                 appState.debugStepOver()
             }
+            .keyboardShortcut(Self.functionKey(6), modifiers: [])
             .disabled(!menu.debugStopped)
 
             Button("Step In") {
                 appState.debugStepIn()
             }
+            .keyboardShortcut(Self.functionKey(7), modifiers: [])
             .disabled(!menu.debugStopped)
 
             Button("Step Out") {
                 appState.debugStepOut()
             }
+            .keyboardShortcut(Self.functionKey(8), modifiers: [])
+            .disabled(!menu.debugStopped)
+
+            Divider()
+
+            Button("Next Instruction") {
+                appState.debugNextInstruction()
+            }
+            .keyboardShortcut(Self.functionKey(10), modifiers: [])
+            .disabled(!menu.debugStopped)
+
+            Button("Step Instruction") {
+                appState.debugStepInstruction()
+            }
+            .keyboardShortcut(Self.functionKey(11), modifiers: [])
             .disabled(!menu.debugStopped)
 
             Divider()
@@ -201,5 +219,12 @@ struct AppCommands: Commands {
             }
             .disabled(!menu.hasCourseProgress)
         }
+    }
+
+    /// SwiftUI has no KeyEquivalent constants for function keys; AppKit
+    /// encodes F1–F35 as private-use code points from U+F704
+    /// (NSF1FunctionKey), which menu key equivalents accept as-is.
+    static func functionKey(_ n: Int) -> KeyEquivalent {
+        KeyEquivalent(Character(UnicodeScalar(UInt32(0xF703 + n))!))
     }
 }

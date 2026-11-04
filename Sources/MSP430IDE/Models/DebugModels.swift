@@ -53,6 +53,22 @@ struct RegisterValue: Identifiable, Equatable, Sendable {
         let hex = String(n, radix: 16, uppercase: true)
         return "0x" + String(repeating: "0", count: max(0, 4 - hex.count)) + hex
     }
+
+    /// Status-register (R2) flags decoded from `value`; nil for every other
+    /// register, or when the value isn't numeric (e.g. "<unavailable>").
+    var srFlags: [(name: String, set: Bool)]? {
+        guard name == "SR" else { return nil }
+        let digits = value.lowercased().hasPrefix("0x") ? String(value.dropFirst(2)) : value
+        guard let bits = UInt64(digits, radix: 16) else { return nil }
+        return [
+            ("C",      bits & (1 << 0) != 0),
+            ("Z",      bits & (1 << 1) != 0),
+            ("N",      bits & (1 << 2) != 0),
+            ("GIE",    bits & (1 << 3) != 0),
+            ("CPUOFF", bits & (1 << 4) != 0),
+            ("V",      bits & (1 << 8) != 0),
+        ]
+    }
 }
 
 struct StopEvent: Sendable {
