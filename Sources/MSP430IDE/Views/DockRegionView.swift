@@ -13,13 +13,10 @@ struct DockRegionView: View {
             tabStrip
             Divider()
             Group {
-                switch panels.activePanel(at: edge) {
-                case .console:        ConsoleView()
-                case .problems:       ProblemsView()
-                case .fileTree:       FileTreeView()
-                case .debugger:       DebuggerView()
-                case .courseProgress: CourseProgressView()
-                case .none:           Color(nsColor: .textBackgroundColor)
+                if let id = panels.activePanel(at: edge) {
+                    PanelContentView(id: id)
+                } else {
+                    Color(nsColor: .textBackgroundColor)
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
