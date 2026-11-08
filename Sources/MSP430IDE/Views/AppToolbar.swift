@@ -76,6 +76,14 @@ struct AppToolbar: ToolbarContent {
                         Label("Step Out", systemImage: "arrow.turn.up.right")
                     }
                     .help("Step Out (F8)")
+                    Button { appState.debugNextInstruction() } label: {
+                        Label("Next Instruction", systemImage: "arrow.right.circle.fill")
+                    }
+                    .help("Next Instruction — one opcode, steps over calls (F10)")
+                    Button { appState.debugStepInstruction() } label: {
+                        Label("Step Instruction", systemImage: "arrow.right.circle")
+                    }
+                    .help("Step Instruction — one opcode, follows calls (F11)")
                 } else if appState.debugSessionState == .running {
                     Button { appState.debugPause() } label: {
                         Label("Pause", systemImage: "pause.fill")

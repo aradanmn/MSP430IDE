@@ -169,8 +169,35 @@ struct DebuggerView: View {
                 .padding(.horizontal, Metrics.spacingS)
                 .padding(.vertical, Metrics.spacingS)
                 .opacity(isRunning ? 0.5 : 1)
+
+                if let flags = regs.lazy.compactMap(\.srFlags).first {
+                    srFlagsRow(flags)
+                        .padding(.horizontal, Metrics.spacingS)
+                        .padding(.bottom, Metrics.spacingS)
+                        .opacity(isRunning ? 0.5 : 1)
+                }
             }
             Divider()
+        }
+    }
+
+    /// SR bits as pills: set flags bold on a tinted background, clear ones dim.
+    private func srFlagsRow(_ flags: [(name: String, set: Bool)]) -> some View {
+        HStack(spacing: Metrics.spacingXS) {
+            Text("SR")
+                .font(.system(size: 10, weight: .semibold))
+                .foregroundStyle(.secondary)
+            ForEach(flags, id: \.name) { flag in
+                Text(flag.name)
+                    .font(.system(size: 9, weight: flag.set ? .bold : .regular, design: .monospaced))
+                    .foregroundStyle(flag.set ? Color.primary : Color(nsColor: .tertiaryLabelColor))
+                    .padding(.horizontal, 4)
+                    .padding(.vertical, 1)
+                    .background(flag.set ? Color(nsColor: .selectedControlColor).opacity(0.5) : Color.clear)
+                    .clipShape(RoundedRectangle(cornerRadius: 3))
+                    .accessibilityLabel("\(flag.name) \(flag.set ? "set" : "clear")")
+            }
+            Spacer()
         }
     }
 

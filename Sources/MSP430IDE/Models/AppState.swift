@@ -1217,11 +1217,14 @@ final class AppState: ObservableObject {
                 }
             }
 
-            // Remote targets are started with `continue` (the program is
-            // already on-chip, halted at the reset vector) — not `run`, which
-            // is for launching a local process.
-            debugSessionState = .running
-            try await client.send("-exec-continue")
+            // After -target-download the core sits halted at the reset vector.
+            // Leave it there and report it as an ordinary stop, so registers,
+            // stack and the editor location are live from the first
+            // instruction without needing a breakpoint. Continue (F5) runs it.
+            let entry = try? await client.send("-stack-info-frame")
+            let entryFrame = entry?["frame"]?.dict.map { StackFrame.from(miDict: $0) }
+            handleDebugStopped(StopEvent(reason: .unknown("entry"), frame: entryFrame))
+            appendDebugConsole("→ Halted at entry — Continue (F5) to run, Step Instruction (F11) to trace\n")
         } catch {
             appendDebugConsole("✗ Debug session failed: \(error.localizedDescription)\n")
             await cleanupDebugSession()
@@ -1275,6 +1278,18 @@ final class AppState: ObservableObject {
     func debugStepOut() {
         let client = gdbClient
         Task { _ = try? await client?.send("-exec-finish") }
+    }
+
+    /// Exactly one machine instruction, following calls into subroutines.
+    func debugStepInstruction() {
+        let client = gdbClient
+        Task { _ = try? await client?.send("-exec-step-instruction") }
+    }
+
+    /// Exactly one machine instruction, running called subroutines to return.
+    func debugNextInstruction() {
+        let client = gdbClient
+        Task { _ = try? await client?.send("-exec-next-instruction") }
     }
 
     func selectDebugFrame(_ frame: StackFrame) {
